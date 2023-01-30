@@ -1,0 +1,21 @@
+# VS
+*.vcxproj
+*.vcxproj.filters
+*.vcxproj.user
+*.sln
+.vs/
+#VSCode
+.vscode/
+#Cmake stuff
+CMakeCache.txt
+cmake_install.cmake
+detect_cuda_compute_capabilities.cu
+detect_cuda_version.cc
+#build??? why are there so many? did I mess up the CMakeLists.txt
+CMakeFiles/
+Debug/
+Release/
+x64/
+main.dir/
+out/
+build/

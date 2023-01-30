@@ -1,0 +1,78 @@
+# CMAKE Requirirement may be overkill.
+cmake_minimum_required(VERSION 3.8 FATAL_ERROR)
+# NOTE: Check what your CUDA device compatibility is on https://developer.nvidia.com/cuda-gpus if it does not work.
+# The minimum is currently unknown.
+
+# NOTE: Do not include slashes at the end of paths.
+# TODO: switch to environment variables or something.
+set(TORCH_PATH_DEBUG "C:\\aux_libs\\libtorch\\debug")
+set(TORCH_PATH_RELEASE "C:\\aux_libs\\libtorch\\release")
+set(SDL_PATH "C:\\aux_libs\\SDL\\SDL2-2.24.2")
+
+#=================================================#
+#  In theory, beyond here nothing should need to  #
+#     be changed to work on a separate device     #
+#=================================================#
+
+#Build options and utils
+set(PROJECT_VERSION "v0.2")
+set(BUILD_TYPE_DEBUG "Debug")
+set(BUILD_TYPE_RELEASE "Release")
+
+# Set cmake options
+set(CMAKE_CXX_STANDARD 11)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
+#C (.c), C++ (.cpp), and CUDA (.cu).
+#I may not even use .c
+project(vsccuda VERSION 0.1 LANGUAGES C CXX CUDA)
+
+#Libraries and additional includes
+#LIBTORCH
+find_package(Torch PATHS ${TORCH_PATH} NO_DEFAULT_PATH REQUIRED)
+link_libraries("${TORCH_LIBRARIES}")
+#SDL w/ OpenGL
+link_directories(BEFORE "${SDL_PATH}/lib/x64")
+include_directories(BEFORE SYSTEM "${SDL_PATH}/include")
+link_libraries(OpenGL32.dll SDL2.dll)
+include_regular_expression(*.h)
+include_regular_expression(*.hpp)
+include_regular_expression(*.cuh)
+
+
+file(GLOB MAIN_HEADERS src/*.h src/*.hpp src/*cuh)
+file(GLOB MAIN_SOURCES src/*.c src/*.cpp src/*cu)
+add_executable(main
+    ${MAIN_SOURCES}
+    ${MAIN_HEADERS}
+)
+add_compile_options(
+    $<$<CONFIG:Debug>:-Og>
+    $<$<CONFIG:Release>:-O3>
+)
+target_compile_features(main PUBLIC cxx_std_11)
+set_property(TARGET main 
+             PROPERTY CUDA_SEPARABLE_COMPILATION ON)
+set_property(TARGET main 
+             PROPERTY CUDA_RUNTIME_LIBRARY "static")
+
+
+# The following code block is suggested to be used on Windows.
+# According to https://github.com/pytorch/pytorch/issues/25457,
+# the DLLs need to be copied to avoid memory errors.
+if (MSVC)
+    set(SDL_DLL "${SDL_PATH}\\lib\\x64\\SDL2.dll")
+    set(GL_DLL "C:\\Windows\\System32\\opengl32.dll")
+    file(GLOB TORCH_DLLS_DEBUG "${TORCH_PATH_DEBUG}/lib/*.dll")
+    file(GLOB TORCH_DLLS_RELEASE "${TORCH_PATH_RELEASE}/lib/*.dll")
+    add_custom_command(TARGET main
+                     POST_BUILD
+                     COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                     $<$<CONFIG:Debug>:"${TORCH_DLLS_DEBUG}">
+                     $<$<CONFIG:RelWithDebInfo>:"${TORCH_DLLS_RELEASE}">
+                     $<$<CONFIG:Release>:"${TORCH_DLLS_RELEASE}">
+                     $<$<CONFIG:MinSizeRel>:"${TORCH_DLLS_RELEASE}">
+                     ${SDL_DLL}
+                     ${GL_DLL}
+                     $<TARGET_FILE_DIR:main>)
+endif (MSVC)
