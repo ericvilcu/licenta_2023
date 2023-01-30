@@ -4,9 +4,7 @@
 #include "CudaIncludesAndMacros.cuh"
 #include "stream_binary_utils.hpp"
 #include "CudaMath.cuh"
-#if __CUDA_ARCH__ < 600
-static_assert(false, "only 6.0 or greater currently supported.")
-#endif
+
 cudaError_t GPUPoints::writeToFile(const char* path, int vers)
 {
 	cudaError_t cudaStatus = cudaSuccess;

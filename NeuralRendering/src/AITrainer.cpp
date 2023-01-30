@@ -457,12 +457,12 @@ cudaError_t NetworkPointer::plotToRenderer(Renderer& renderer, const GPUPoints& 
 #define MODEL_POSTFIX "/model"
 #define OPTIM_POSTFIX "/optim"
 #define DATA_POSTFIX "/data"
-std::unique_ptr<NetworkPointer> NetworkPointer::load(int vers, const std::string& file, bool loadDatasetIfPresent, bool loadTrainImagesIfPresent)
+std::unique_ptr<NetworkPointer> NetworkPointer::load(int vers, const std::string& file, bool loadDatasetIfPresent, bool loadTrainImagesIfPresent, bool quiet)
 {
     auto ptr = std::unique_ptr<NetworkPointer>(new NetworkPointer());
     //first, if asked to, the dataSet
     if (loadDatasetIfPresent) {
-        ptr->dataSet = DataSet::load(vers, file + DATA_POSTFIX, loadTrainImagesIfPresent);
+        ptr->dataSet = DataSet::load(vers, file + DATA_POSTFIX, loadTrainImagesIfPresent, quiet);
         if (ptr->dataSet == nullptr)goto Error;
     }
     //then, the model itself

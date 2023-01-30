@@ -2,6 +2,12 @@
 #include "PlotPoints.cuh"
 #include "cuda_debug_utils.cuh"
 
+#ifdef __CUDA_ARCH__
+#if __CUDA_ARCH__ < 600
+static_assert(false, "only 6.0 or greater currently supported. (due to AtomicAdd)");
+#endif
+#endif // __CUDA_ARCH__
+
 /*
 * This takes in a rgbw value, where its true value should be  x.rgb/x.w
 */

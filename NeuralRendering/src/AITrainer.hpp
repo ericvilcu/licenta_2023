@@ -45,7 +45,7 @@ public:
     cudaError_t plotToRenderer(Renderer& renderer, const GPUPoints& points, const CameraDataItf& camera, const Renderer::ViewType viewType);
     std::shared_ptr<DataSet> getDataSet() { return dataSet; }
     void setDataSet(std::shared_ptr<DataSet> dataSet_new) { dataSet = dataSet_new; }
-    static std::unique_ptr<NetworkPointer> load(int vers, const std::string& file, bool loadDatasetIfPresent = true, bool loadTrainImagesIfPresent = false);
+    static std::unique_ptr<NetworkPointer> load(int vers, const std::string& file, bool loadDatasetIfPresent = true, bool loadTrainImagesIfPresent = false, bool quiet = true);
     int save(const std::string& file, bool saveDataset = true, bool saveTrainImages = false);
     //todo: some way to add more data
     //todo: some way to combine scenes

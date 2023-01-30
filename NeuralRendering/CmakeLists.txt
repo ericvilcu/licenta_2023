@@ -1,6 +1,6 @@
 # CMAKE Requirirement may be overkill.
 cmake_minimum_required(VERSION 3.8 FATAL_ERROR)
-# NOTE: Check what your CUDA device compatibility is on https://developer.nvidia.com/cuda-gpus if it does not work.
+# NOTE: Check what your CUDA device compatibility is on https://developer.nvidia.com/cuda-gpus if it does not work. (or the "Autodetected CUDA architecture(s):" of the cmake output)
 # The minimum is currently unknown.
 
 # NOTE: Do not include slashes at the end of paths.
@@ -25,11 +25,11 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 #C (.c), C++ (.cpp), and CUDA (.cu).
 #I may not even use .c
-project(vsccuda VERSION 0.1 LANGUAGES C CXX CUDA)
+project(NeuralRendering VERSION 0.1 LANGUAGES C CXX CUDA)
 
 #Libraries and additional includes
 #LIBTORCH
-find_package(Torch PATHS ${TORCH_PATH} NO_DEFAULT_PATH REQUIRED)
+find_package(Torch PATHS ${TORCH_PATH_DEBUG} NO_DEFAULT_PATH REQUIRED)
 link_libraries("${TORCH_LIBRARIES}")
 #SDL w/ OpenGL
 link_directories(BEFORE "${SDL_PATH}/lib/x64")
@@ -47,8 +47,8 @@ add_executable(main
     ${MAIN_HEADERS}
 )
 add_compile_options(
-    $<$<CONFIG:Debug>:-Og>
-    $<$<CONFIG:Release>:-O3>
+    $<$<CONFIG:DEBUG>:-Og>
+    $<$<CONFIG:RELEASE>:-O3>
 )
 target_compile_features(main PUBLIC cxx_std_11)
 set_property(TARGET main 
@@ -68,10 +68,12 @@ if (MSVC)
     add_custom_command(TARGET main
                      POST_BUILD
                      COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                     $<$<CONFIG:Debug>:"${TORCH_DLLS_DEBUG}">
-                     $<$<CONFIG:RelWithDebInfo>:"${TORCH_DLLS_RELEASE}">
-                     $<$<CONFIG:Release>:"${TORCH_DLLS_RELEASE}">
-                     $<$<CONFIG:MinSizeRel>:"${TORCH_DLLS_RELEASE}">
+                     #Todo: fix sometime. I've probably already wasted too much time on this and it may be better to just switch them out manually when needed.
+                     ${TORCH_DLLS_DEBUG}
+                     #$<$<CONFIG:Debug>:"${TORCH_DLLS_DEBUG}">
+                     #$<$<CONFIG:RelWithDebInfo>:"${TORCH_DLLS_RELEASE}">
+                     #$<$<CONFIG:Release>:"${TORCH_DLLS_RELEASE}">
+                     #$<$<CONFIG:MinSizeRel>:"${TORCH_DLLS_RELEASE}">
                      ${SDL_DLL}
                      ${GL_DLL}
                      $<TARGET_FILE_DIR:main>)

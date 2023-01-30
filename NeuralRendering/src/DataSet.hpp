@@ -14,13 +14,13 @@ private:
 	int version = -1;
 public:
 	std::shared_ptr<GPUPoints> points;
-	void reload(bool quiet = false);
-	Scene(const std::string path, bool autoload = true, bool load_train_data = true)
+	void reload(bool quiet = true);
+	Scene(const std::string path, bool autoload = true, bool load_train_data = true, bool quiet = true)
 		:number_of_train_images{ -1 },
 		path{ path },
 		points{ nullptr } {
 		if (autoload) {
-			reload();
+			reload(quiet);
 		}
 	}
 	int num_train_images() { return number_of_train_images; };
@@ -112,6 +112,6 @@ public:
 	}
 
 	int save(const std::string& path, bool saveTrainingImages);
-	static std::unique_ptr<DataSet> load(int vers, const std::string& path, bool loadTrainingimagesIfPresent = true);
+	static std::unique_ptr<DataSet> load(int vers, const std::string& path, bool loadTrainingimagesIfPresent = true, bool quiet = true);
 
 };

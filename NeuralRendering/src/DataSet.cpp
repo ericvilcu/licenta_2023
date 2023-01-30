@@ -96,7 +96,7 @@ void DataSet::initializeLoaders() {
     trainImageLoader = std::make_unique<ImageLoader>(img_id(0, 0), [this](img_id id) {return loadImageOfRand(id); }, *train_image_provider);
     showImageLoader = std::make_unique<ImageLoader>(img_id(0, 0), [this](img_id id) {return loadImageOf(id); }, *show_image_provider);
 }
-std::unique_ptr<DataSet> DataSet::load(int vers, const std::string& path, bool loadTrainingimagesIfPresent) {
+std::unique_ptr<DataSet> DataSet::load(int vers, const std::string& path, bool loadTrainingimagesIfPresent, bool quiet) {
     auto ptr = std::unique_ptr<DataSet>(new DataSet(loadTrainingimagesIfPresent));
     struct stat info;
     int scene = 0;
@@ -104,7 +104,7 @@ std::unique_ptr<DataSet> DataSet::load(int vers, const std::string& path, bool l
         std::string scene_path = path + '/' + std::to_string(scene++);
         if (stat(scene_path.c_str(), &info))break;//if it is inaccessible
         if (!(bool)(info.st_mode & S_IFDIR))break;//or it is not a directory
-        ptr->scenes.emplace_back(scene_path, true, loadTrainingimagesIfPresent);
+        ptr->scenes.emplace_back(scene_path, true, loadTrainingimagesIfPresent, quiet);
     }
     if (loadTrainingimagesIfPresent && ptr->isValid()) {
         ptr->initializeLoaders();
