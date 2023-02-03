@@ -331,7 +331,7 @@ void NetworkPointer::train_frame(unsigned long long ms) {
 
 void NetworkPointer::train_long(unsigned long long ms, unsigned long long report_frequency_ms){
     auto start = std::chrono::high_resolution_clock::now();
-    auto last_report = std::chrono::high_resolution_clock::now();
+    auto last_report = std::chrono::high_resolution_clock::now() - std::chrono::milliseconds(report_frequency_ms);
     auto end = std::chrono::high_resolution_clock::now();
     int processed_frames = 0;
     while (((end - start).count() * 1e-6) <= (double)ms)

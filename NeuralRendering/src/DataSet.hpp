@@ -27,8 +27,10 @@ class DataModuleImpl : public IDataModuleImpl {
 	torch::Tensor environment_data;
 	static torch::Tensor readBinFrom(std::string path, bool require_grad);
 	static torch::Tensor readTxtFrom(std::string path, bool require_grad);
+	static void writeBinTo(std::string path, torch::Tensor what);
+	static void writeTxtTo(std::string path, torch::Tensor what);
 public:
-	DataModuleImpl(const std::string path, fileType_t t, bool train = true) {
+	DataModuleImpl(const std::string& path, fileType_t t, bool train = true) {
 		switch (t) {
 		case CUSTOM_BINARY:
 			this->point_data = register_buffer("point_data", readBinFrom(path + "/points.bin", train));
@@ -50,6 +52,27 @@ public:
 			throw "invalid t";
 		}
 		this->train(train);
+	}
+	void save(const std::string& path, fileType_t mode) {
+		switch (mode) {
+			case CUSTOM_BINARY:
+				writeBinTo(path + "/points.bin", this->point_data);
+				writeBinTo(path + "/environment.bin", this->environment_data);
+				break;
+			case TEXT:
+				writeTxtTo(path + "/points.txt", this->point_data);
+				writeTxtTo(path + "/environment.txt", this->environment_data);
+				break;
+			case TORCH_ARCHIVE: {
+				torch::serialize::OutputArchive archive;
+				archive.write("points", this->point_data);
+				archive.write("environment", this->environment_data);
+				archive.save_to(path + "/points");
+			}break;
+			default:
+				std::cerr << "mode "<<mode << " is invalid\n";
+				throw "invalid mode";
+		}
 	}
 	DataModuleImpl(bool train = true) {
 		this->point_data = register_buffer("point_data", torch::zeros({ 0 }));

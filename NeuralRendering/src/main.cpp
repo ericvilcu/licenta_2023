@@ -77,7 +77,9 @@ int main(int argc, char** argv)
             if (!args.quiet)std::cout << "Network initialized...\n";
         }
         else {
+            if (!args.quiet)std::cout << "Initializing network and data...\n";
             network = NetworkPointer::load(args.default_path_AI, true, true, args.quiet);
+            if (!args.quiet)std::cout << "Network and data initialized...\n";
             dataSet = network->getDataSet();
         }
 
@@ -149,8 +151,11 @@ int main(int argc, char** argv)
                 }
             }
         }
-        if (args.save_results)
+        if (args.save_results) {
+            if (!args.quiet)std::cout << "Saving to: " << args.default_output_path << "...\n";
             nw.save(args.default_output_path, fileType::CUSTOM_BINARY, true, args.save_train_images);
+            if (!args.quiet)std::cout << "Saved!\n";
+        }
         // cudaDeviceReset must be called before exiting in order for profiling and
         // tracing tools such as Nsight and Visual Profiler to show complete traces.
         auto cudaStatus = cudaDeviceReset();

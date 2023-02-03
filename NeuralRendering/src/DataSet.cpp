@@ -64,9 +64,10 @@ void Scene::save(const std::string& path, fileType_t mode, bool save_training_da
         makeDirIfNotPresent(path + "/train_images");
         if(this->path!=path)
             for (int i = 0; i < number_of_train_images; ++i) {
-                loadOne(i, false)->copyTo(path + "/train_images" + std::to_string(i + 1) + postfix);
+                loadOne(i, false)->copyTo(path + "/train_images/" + std::to_string(i + 1) + postfix);
             }
     }
+    point_data->save(path, mode);
 }
 
 int DataSet::save(const std::string& path, fileType_t mode, bool saveTrainingImages) {
@@ -91,7 +92,7 @@ std::unique_ptr<DataSet> DataSet::load(const std::string& path, bool loadTrainin
         std::string scene_path = path + '/' + std::to_string(scene++);
         if (stat(scene_path.c_str(), &info))break;//if it is inaccessible
         if (!(bool)(info.st_mode & S_IFDIR))break;//or it is not a directory
-        ptr->scenes.emplace_back(scene_path, true, loadTrainingimagesIfPresent, quiet);
+        ptr->scenes.emplace_back(scene_path,/*index=*/scene-1,/*autoload=*/true, loadTrainingimagesIfPresent, quiet);
     }
     if (loadTrainingimagesIfPresent && ptr->isValid()) {
         ptr->initializeLoaders();
@@ -121,6 +122,18 @@ torch::Tensor DataModuleImpl::readBinFrom(std::string path, bool require_grad)
     return torch::tensor(std::move(data), torch::TensorOptions().requires_grad(require_grad)).reshape(torch::IntArrayRef(dimensions)).cuda();
 }
 
+void DataModuleImpl::writeBinTo(std::string path, torch::Tensor what)
+{
+    std::ofstream f{ path , std::ios::binary };
+    int64_t ndim = what.sizes().size();
+    writeOneBinary(f, ndim);
+    for (const int64_t& dim : what.sizes()) {
+        writeOneBinary(f, dim);
+    }
+    torch::Tensor what_CPU = what.cpu();
+    writeBinary(f, what_CPU.data_ptr<float>(), what.numel());
+}
+
 torch::Tensor DataModuleImpl::readTxtFrom(std::string path, bool require_grad)
 {
     std::ifstream f{ path };
@@ -145,3 +158,20 @@ torch::Tensor DataModuleImpl::readTxtFrom(std::string path, bool require_grad)
     }
     return torch::tensor(std::move(data), torch::TensorOptions().requires_grad(require_grad)).reshape(torch::IntArrayRef(dimensions)).cuda();
 }
+
+void DataModuleImpl::writeTxtTo(std::string path, torch::Tensor what){
+    std::ofstream f{ path };
+    f << what.sizes().size() << '\n';
+    for (const int64_t& dim : what.sizes()) {
+        f << dim << ' ';
+    }
+    f << '\n';
+    torch::Tensor what_CPU = what.cpu();
+    float* float_ptr = what_CPU.data_ptr<float>();
+    int64_t numel = what.numel();
+    for (int64_t i = 0; i < numel; ++i) {
+        //could do '\n's occasionally but this is only to test edge-case scenarios with hand-made files ayway.
+        f << float_ptr[i] << ' ';
+    }
+}
+
