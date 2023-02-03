@@ -9,6 +9,7 @@
 #include "CameraData.hpp"
 #include "PlotPointsBackwardsPasses.cuh"
 #include "PlotPoints.cuh"
+#include "PlotterModule.hpp"
 #include "stream_binary_utils.hpp"
 //Not the best solution, but the best I could think of.
 //#include "HeaderThatSupressesWarnings.h"
@@ -134,6 +135,9 @@ public:
         model_archive.write("num_layers", t_num_layers, false);
         model_archive.save_to(file);
     }
+    int layers() {
+        return num_layers;
+    }
 };
 
 //Note to self: typedef breaks CUDA kernels.
@@ -142,22 +146,24 @@ TORCH_MODULE(mainModule);
 //This is the second level of indirection to the module class, which may no longer be needed as I now include torch basically everywhere.
 class Network {
 public:
+    Plotter plotter = nullptr;
     NetworkPointer* parent;
     NetworkPointer::trainingStatus status;
     mainModule mdl;
     int batch_size;
     int remaining_in_batch;
-    bool improve_pointcloud=true;
     float accumulated_loss = 0;
     //torch::optim::LRScheduler
     torch::optim::Adam optim;
     Network(NetworkPointer* parent, int batch_size = 20)
         :parent{ parent },
+        plotter{ parent->getDataSet() },
         batch_size{ batch_size },
         remaining_in_batch{ batch_size },
         mdl{},
-        optim{ mdl->parameters(), torch::optim::AdamOptions()/*.lr(0.00001)*/.eps(1e-8) },
-        status(0, 0) {
+        optim{ {mdl->parameters(),plotter->parameters()}, torch::optim::AdamOptions()/*.lr(0.00001)*/.eps(1e-8) },
+        status(0, 0){
+        
     }
 
     /// <summary>
@@ -169,26 +175,19 @@ public:
     /// <param name="w">Width of camera, -1 if not needed</param>
     /// <param name="h">Height of camera, -1 if not needed</param>
     /// <returns>A vector of images</returns>
-    std::vector<torch::Tensor> plot_images_and_halves(int num, const GPUPoints& points, const CameraDataItf& camera, bool requires_grad = false, int w = -1, int h = -1) {
-        float* convertable;
+    std::vector<torch::Tensor> plot_images_and_halves(int num, int scene_index, std::shared_ptr<CameraDataItf> camera, bool require_grad = true) {
 
         std::vector<torch::Tensor> imgs;
-        if (w <= 0 || h <= 0) {
-            w = camera.get_width(); h = camera.get_height();
-        }
-        auto used_camera = camera.scaleTo(w, h);
+        int w = camera->get_width(), h = camera->get_height();
+        std::shared_ptr<CameraDataItf> used_camera = camera->scaleTo(w, h);
         for (int i = 0; i < num; ++i) {
-            auto err = plotPointsToGPUMemory(*(void**)&convertable, h, w, points, *used_camera, false, false);
+            torch::Tensor this_dim = plotter->forward(torch::tensor(std::vector<int>{ scene_index }), used_camera);
+            auto err = cudaGetLastError();
             if (err != cudaSuccess) {
                 std::cerr << err << ' ' << cudaGetErrorString(err) << '\n';
                 throw cudaGetErrorString(err);
             }
-            auto converted = torch::from_blob(convertable, { h, w, 4 }, cudaFree, torch::TensorOptions().dtype(torch::kFloat).device(torch::kCUDA).requires_grad(requires_grad));
-            //if (converted.mean().item<float>() < 1) {
-            //    std::cerr << converted << '\n';
-            //    exit(-1);
-            //}
-            imgs.push_back(converted);
+            imgs.push_back(this_dim);
             w /= 2;
             h /= 2;
             used_camera = used_camera->scaleTo(w, h);
@@ -196,16 +195,12 @@ public:
         return std::move(imgs);
     }
 
-    /**
-    * todo: document better
-    * -1 will automatically be interchanged for the camera's width/hiehgt if neccesary.
-    */
-    torch::Tensor process(const GPUPoints& points, const CameraDataItf& camera, int w=-1, int h=-1) {
-
-        return mdl->forward(plot_images_and_halves(4, points, camera, false, w, h));
+    torch::Tensor process(const Scene& scene, std::shared_ptr<CameraDataItf> camera) {
+        return mdl->forward(plot_images_and_halves(mdl->layers(), scene.index, camera));
     }
-    torch::Tensor process(const Scene& scene, const CameraDataItf& camera) {
-        return process(*scene.points, camera);
+
+    torch::Tensor plot_one(const Scene& scene, std::shared_ptr<CameraDataItf> camera) {
+        return plot_images_and_halves(1, scene.index, camera)[0];
     }
 
     torch::Tensor train_diff(torch::Tensor produced, torch::Tensor target) {
@@ -222,19 +217,11 @@ public:
         if (remaining_in_batch == 0) {
             // Optimizer pass
             optim.step();
-            if (improve_pointcloud) {
-                //Also makes it so only one scene may exist, ever.
-                for (int i = 0; i < parent->getDataSet()->num_scenes(); ++i) {
-                    auto s = parent->getDataSet()->scene(i);
-                    s.points->merge_grad();
-                    s.points->zero_grad();
-                }
-            }
             //Here would go other gradient-based optimizations.
             status.epochs++;
-            status.epoch_count++;
+            status.epoch_count = 1;
             optim.zero_grad();
-            status.loss += accumulated_loss / batch_size;
+            status.loss = accumulated_loss / batch_size;
             remaining_in_batch = batch_size;
             accumulated_loss = 0;
             return;
@@ -243,7 +230,7 @@ public:
         auto& img = *pair.second;
         auto& scene = pair.first;
         remaining_in_batch = std::max(0, remaining_in_batch - 1);
-        std::vector<torch::Tensor> plots = plot_images_and_halves(4, *scene.points, img.camera(), /*requires_grad=*/improve_pointcloud);
+        std::vector<torch::Tensor> plots = plot_images_and_halves(mdl->layers(), scene.index, img.cam());
         auto generated = mdl->forward(plots);
         if (img.target.dtype() == torch::kFloat) {
             if (generated.sizes() != img.target.sizes())
@@ -260,14 +247,6 @@ public:
             output.backward();
         }
         else assert(false&&"unsupported datatype");
-        //here would go other gradient-calculation stuff
-        if (improve_pointcloud) {
-            //reverse-grad the plots, then feed them to some CUDA thing.
-            for (auto& plot : plots) {
-                //This is random. TODO: get the learning rate from Adam optimizer or make a module to make use of autograd
-                PlotPointsBackwardsPass(*scene.points, *(img.camera().scaleTo(plot.size(1),plot.size(0))), -1, -1, plot.grad().data_ptr<float>(), plot.data_ptr<float>(), 0.0001, true);
-            }
-        }
     }
 
     void train_batch() {
@@ -280,7 +259,7 @@ public:
             image_data_pairs.emplace_back(pair);
             auto& img = *pair.second;
             auto& scene = pair.first;
-            individual_plots.emplace_back(plot_images_and_halves(4, *scene.points, img.camera(), /*requires_grad=*/improve_pointcloud));
+            individual_plots.emplace_back(plot_images_and_halves(mdl->layers(), scene.index, img.cam()));
         }
         remaining_in_batch = 0;
         for (int i = 0; i < individual_plots[0].size(); ++i) {
@@ -309,29 +288,10 @@ public:
         auto output = train_diff(generated_multiple, torch::stack(targets));
         output.backward();
         accumulated_loss += output.item<float>();
-        //here would go other gradient-calculation stuff
-        if (improve_pointcloud) {
-            for (int i = 0; i < individual_plots.size(); ++i) {
-                auto& pair = image_data_pairs[i];
-                auto& img = *pair.second;
-                auto& scene = pair.first;
-                //reverse-grad the plots, then feed them to some CUDA thing.
-                for (auto& plot : individual_plots[i]) {
-                    //TODO: make the learning rate not random
-                    PlotPointsBackwardsPass(*scene.points, *(img.camera().scaleTo(plot.size(1),plot.size(0))), -1, -1, plot.grad().data_ptr<float>(), plot.data_ptr<float>(), 0.1, true);
-                }
-            }
-        }
         remaining_in_batch = batch_size;
         {//if (remaining_in_batch == 0) {
             // Optimizer pass
             optim.step();
-            if (improve_pointcloud) {
-                //Also makes it so only one scene may exist, ever.
-                auto s = parent->getDataSet()->scene(0);
-                s.points->merge_grad();
-                s.points->zero_grad();
-            }
             //Here would go other gradient-based optimizations.
             status.epochs++;
             status.epoch_count++;
@@ -344,7 +304,7 @@ public:
 };
 
 
-NetworkPointer::NetworkPointer(std::shared_ptr<DataSet> dataSet) :network{ new Network(this) }, dataSet{ dataSet }{
+NetworkPointer::NetworkPointer(std::shared_ptr<DataSet> dataSet) :dataSet{ dataSet }, network{ new Network(this) }{
 
 }
 
@@ -418,25 +378,27 @@ void NetworkPointer::plot_example(Renderer& r, Renderer::ViewType points, Render
 
     //The largest point view, the AI may use some smaller ones as well.
     {
+        //todo? add more stuff in INTERACTIVE camera to view different channels.
+        auto tmp_tensor = network->plot_one(scene, img.cam()->scaleTo(w, h)).slice(-1, 0, 4);
+        tmp_tensor = (tmp_tensor * 255).clamp(0, 255).to(caffe2::kByte, false, false).to_dense().contiguous();
+
         void* tmp;
-        auto err = plotPointsToGPUMemory(tmp, h, w, *scene.points, img.camera(), false, true);
-        auto cd = (PinholeCameraData*)&img.camera();
-        bytesToView(*(const void**)&tmp, h, w, r, points);
-        cudaFree(tmp);
+        tmp = tmp_tensor.data_ptr<unsigned char>();
+        bytesToView(*(const void**)&tmp, tmp_tensor.size(0), tmp_tensor.size(1), r, points);
     }
 
     //The output image.
     {
         torch::Tensor tmp_tensor;
         void* tmp;
-        tmp_tensor = network->process(scene, img.camera());
+        tmp_tensor = network->process(scene, img.cam());
         tmp_tensor = (tmp_tensor * 255).clamp(0, 255).to(caffe2::kByte, false, false).to_dense().contiguous();
         tmp = tmp_tensor.data_ptr<unsigned char>();
         bytesToView(*(const void**)&tmp, tmp_tensor.size(0), tmp_tensor.size(1), r, result);
     }
 }
 
-cudaError_t NetworkPointer::plotToRenderer(Renderer& renderer, const GPUPoints& points, const CameraDataItf& camera, const Renderer::ViewType viewType)
+cudaError_t NetworkPointer::plotResultToRenderer(Renderer& renderer, const Scene& scene, std::shared_ptr<CameraDataItf> camera, const Renderer::ViewType viewType)
 {
     int w, h;
     cudaError_t cudaStatus = cudaSuccess;
@@ -446,7 +408,7 @@ cudaError_t NetworkPointer::plotToRenderer(Renderer& renderer, const GPUPoints& 
 
     torch::Tensor tmp_tensor;
     void* tmp;
-    tmp_tensor = network->process(points, camera, w, h);
+    tmp_tensor = network->process(scene, camera->scaleTo(w, h));
     tmp_tensor = (tmp_tensor * 255).clamp(0, 255).to(caffe2::kByte, false, false).to_dense().contiguous();
 
     tmp = tmp_tensor.data_ptr<unsigned char>();
@@ -454,16 +416,44 @@ cudaError_t NetworkPointer::plotToRenderer(Renderer& renderer, const GPUPoints& 
 
     return cudaStatus;
 }
+
+//todo: include more options.
+cudaError_t NetworkPointer::plotToRenderer(Renderer& renderer, const Scene& scene, std::shared_ptr<CameraDataItf> camera, const Renderer::ViewType viewType)
+{
+    //todo: add more stuff in INTERACTIVE camera to view different channels.
+    int w, h;
+    cudaError_t cudaStatus = cudaSuccess;
+    const auto& view = renderer.getView(viewType);
+    w = view.width;
+    h = view.height;
+
+    torch::Tensor tmp_tensor;
+
+    //NOTE: removes all but the first 4 dimensions.
+    tmp_tensor = network->plot_one(scene, camera->scaleTo(w, h)).slice(-1, 0, 4);
+    tmp_tensor = (tmp_tensor * 255).clamp(0, 255).to(caffe2::kByte, false, false).to_dense().contiguous();
+
+    void* tmp;
+    tmp = tmp_tensor.data_ptr<unsigned char>();
+    cudaStatus = bytesToView(*(const void**)&tmp, tmp_tensor.size(0), tmp_tensor.size(1), renderer, viewType);
+
+    return cudaStatus;
+}
+
 #define MODEL_POSTFIX "/model"
 #define OPTIM_POSTFIX "/optim"
 #define DATA_POSTFIX "/data"
-std::unique_ptr<NetworkPointer> NetworkPointer::load(int vers, const std::string& file, bool loadDatasetIfPresent, bool loadTrainImagesIfPresent, bool quiet)
+std::unique_ptr<NetworkPointer> NetworkPointer::load(const std::string& file, bool loadDatasetIfPresent, bool loadTrainImagesIfPresent, bool quiet)
 {
-    auto ptr = std::unique_ptr<NetworkPointer>(new NetworkPointer());
+    std::unique_ptr<NetworkPointer> ptr = nullptr;
     //first, if asked to, the dataSet
     if (loadDatasetIfPresent) {
-        ptr->dataSet = DataSet::load(vers, file + DATA_POSTFIX, loadTrainImagesIfPresent, quiet);
-        if (ptr->dataSet == nullptr)goto Error;
+        std::shared_ptr<DataSet> dataSet = DataSet::load(file + DATA_POSTFIX, loadTrainImagesIfPresent, quiet);
+        if (dataSet == nullptr)goto Error;
+        ptr = std::make_unique<NetworkPointer>(dataSet);
+
+    } else {
+        ptr = std::make_unique<NetworkPointer>();
     }
     //then, the model itself
     {
@@ -481,7 +471,7 @@ std::unique_ptr<NetworkPointer> NetworkPointer::load(int vers, const std::string
 Error:
     return nullptr;
 }
-int NetworkPointer::save(const std::string& file, bool saveDataset, bool saveTrainImages)
+int NetworkPointer::save(const std::string& file, fileType_t mode ,bool saveDataset, bool saveTrainImages)
 {
     makeDirIfNotPresent(file);
     //First, the network itelf.
@@ -497,7 +487,7 @@ int NetworkPointer::save(const std::string& file, bool saveDataset, bool saveTra
     }
     //then, if asked to, the dataSet
     if (saveDataset) {
-        return dataSet->save(file + DATA_POSTFIX, saveTrainImages);
+        return dataSet->save(file + DATA_POSTFIX, mode ,saveTrainImages);
     }
     return 0;
 }

@@ -1,9 +1,12 @@
 #include <iostream>
 #include <functional>
+
 #include "cuda.h"
 #include "HeaderThatSupressesWarnings.h"
 #include "cuda_runtime.h"
 #include "HeaderThatReenablesWarnings.h"
+
+
 template <typename T>
 inline void printGPUMemory(void* dev, int size, int block_size = 1) {
 	T* loc = new T[size];

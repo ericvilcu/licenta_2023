@@ -32,8 +32,9 @@ void CameraController::processMovements()
 	if (keys[SDL_SCANCODE_S])dir.z += 0.2f;
 	if (keys[SDL_SCANCODE_Q])rot.z -= 0.02f;
 	if (keys[SDL_SCANCODE_E])rot.z += 0.02f;
-	if (keys[SDL_SCANCODE_F])camera.flip_x();
-	if (keys[SDL_SCANCODE_N])camera.use_neural = !camera.use_neural;
+	//todo: make holding down the button not flip back and forth every frame.
+	if (keys[SDL_SCANCODE_F])camera->flip_x();
+	if (keys[SDL_SCANCODE_N])camera->use_neural = !camera->use_neural;
 
 	if (keys[SDL_SCANCODE_V]) {
 		dir.x *= 5; dir.y *= 5; dir.z *= 5;
@@ -69,6 +70,6 @@ void CameraController::processMovements()
 	else mouse_trustable = false;
 
 	SDL_PumpEvents();
-	camera.move(dir);
-	camera.rotate_clampy(rot,PI/2.1f);
+	camera->move(dir);
+	camera->rotate_clampy(rot,PI/2.1f);
 }

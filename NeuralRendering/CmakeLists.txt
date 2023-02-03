@@ -15,7 +15,7 @@ set(SDL_PATH "C:\\aux_libs\\SDL\\SDL2-2.24.2")
 #=================================================#
 
 #Build options and utils
-set(PROJECT_VERSION "v0.2")
+set(PROJECT_VERSION "v0.3")
 set(BUILD_TYPE_DEBUG "Debug")
 set(BUILD_TYPE_RELEASE "Release")
 
@@ -25,7 +25,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 #C (.c), C++ (.cpp), and CUDA (.cu).
 #I may not even use .c
-project(NeuralRendering VERSION 0.1 LANGUAGES C CXX CUDA)
+project(NeuralRendering VERSION 0.3 LANGUAGES C CXX CUDA)
 
 #Libraries and additional includes
 #LIBTORCH

@@ -154,3 +154,8 @@ __utilf float4 sample_environment_data(float4* environment_data, int resolution,
 	return environment_data[pixel_from_cubemap_coords(resolution, cubemap_coords(resolution, direction))];
 }
 
+__utilf float* sample_environment_data_v2(float* environment_data, int resolution, float3 direction, int ndim) {
+	// (ndim 'colors') and some other value that was meant to represent relative depth or something but is now unused.
+	return &environment_data[(ndim+1) * pixel_from_cubemap_coords(resolution, cubemap_coords(resolution, direction))];
+}
+

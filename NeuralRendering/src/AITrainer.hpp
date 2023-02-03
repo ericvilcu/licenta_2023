@@ -9,10 +9,10 @@
 class Network;
 class NetworkPointer {
 private:
+    std::shared_ptr<DataSet> dataSet;//dataSet above Network, as it should be initialized beforehand.
     std::shared_ptr<Network> network;
-    std::shared_ptr<DataSet> dataSet;
-    NetworkPointer() {};
 public:
+    NetworkPointer() {};
     struct trainingStatus {
         int epoch_count = 1;
         int epochs;
@@ -42,11 +42,13 @@ public:
     /**
     * @brief Plots to renderer a scene from the perspective of a camera, using the neural renderer.
     */
-    cudaError_t plotToRenderer(Renderer& renderer, const GPUPoints& points, const CameraDataItf& camera, const Renderer::ViewType viewType);
+    cudaError_t plotResultToRenderer(Renderer& renderer, const Scene& scene, const std::shared_ptr<CameraDataItf> camera, const Renderer::ViewType viewType);
+
+    cudaError_t plotToRenderer(Renderer& renderer, const Scene& scene, const std::shared_ptr<CameraDataItf> camera, const Renderer::ViewType viewType);
     std::shared_ptr<DataSet> getDataSet() { return dataSet; }
     void setDataSet(std::shared_ptr<DataSet> dataSet_new) { dataSet = dataSet_new; }
-    static std::unique_ptr<NetworkPointer> load(int vers, const std::string& file, bool loadDatasetIfPresent = true, bool loadTrainImagesIfPresent = false, bool quiet = true);
-    int save(const std::string& file, bool saveDataset = true, bool saveTrainImages = false);
+    static std::unique_ptr<NetworkPointer> load(const std::string& file, bool loadDatasetIfPresent = true, bool loadTrainImagesIfPresent = false, bool quiet = true);
+    int save(const std::string& file, fileType_t mode, bool saveDataset = true, bool saveTrainImages = false);
     //todo: some way to add more data
     //todo: some way to combine scenes
     //This may be needed as shared_ptr's destructor may not be visible from any other place.

@@ -33,12 +33,14 @@
 //https://forums.developer.nvidia.com/t/includes-for-surf2dwrite/39038/2
 //This is to prevent intellisense from showing an error whenever the <<<...>>> syntax is used.
 #ifdef __INTELLISENSE__
+typedef unsigned char uchar;
 #define CUDA_KERNEL(...) 
 #define CUDA_TEXTURE(...) textureReference
 template<typename T>
 void surf2Dwrite(T data, cudaSurfaceObject_t surfObj, int x, int y,
     cudaSurfaceBoundaryMode boundaryMode = cudaBoundaryModeTrap);
 #else
+#define uchar unsigned char
 #define CUDA_KERNEL(...) <<< __VA_ARGS__ >>>
 #define CUDA_TEXTURE(...) texture<__VA_ARGS__>
 #endif

@@ -1,55 +1,37 @@
-#include "DataSet.hpp"
 #include <sys/stat.h>
 #include "stream_binary_utils.hpp"
-void Scene::reload(bool quiet)
+#include "DataSet.hpp"
+
+void Scene::load_points(bool quiet)
 {
-    int vers = 0x500;//v5 does not have a .meta file.
-    {
-        std::ifstream f{ path + "/meta.txt" };
-        if (!f.fail()) {
-            f >> vers;
-        }
+
+    if (existsAndIsFile((path + "/points.txt"))) {
+        point_data = DataModule(path, TEXT);
+        if (!quiet)std::cout << "points loaded for " << path << "!\n";
     }
-    version = vers;
-    number_of_train_images = 0;
-    points = std::make_shared<GPUPoints>();
-    GPUPoints::read((path + "/points.txt").c_str(), *points, vers);
-    if (!quiet)std::cout << "points loaded for " << path << "!\n";
-    if (vers == 0x500) {
-        std::ifstream f{ path + "/paths.txt" };
-        int expected_count;
-        if (!(f >> expected_count))return;
-        if (expected_count > 0) {
-        }
-        int i = 1;
-        float rotation[9];
-        float translation[3];
-        while (f >> rotation[0] >> rotation[1] >> rotation[2]
-            >> rotation[3] >> rotation[4] >> rotation[5]
-            >> rotation[6] >> rotation[7] >> rotation[8]
-            >> translation[0] >> translation[1] >> translation[2]) {
-            float4x4 rt{
-                -rotation[0], -rotation[3], -rotation[6],translation[0],
-                rotation[1], rotation[4], rotation[7],-translation[1],
-                rotation[2], rotation[5], rotation[8],-translation[2],
-                0,0,0,1,
-            };
-            number_of_train_images++;
-        }
+    if (existsAndIsFile((path + "/points.bin"))) {
+        point_data = DataModule(path, CUSTOM_BINARY);
+        if (!quiet)std::cout << "points loaded for " << path << "!\n";
     }
-    else { //0x600
-        int i = 1;
-        while (true) {
-            auto pathn = path + "/train_images/" + std::to_string(i++) + ".txt";
-            if ( !std::ifstream(pathn).good() ) {
-                break;
-            }
-            number_of_train_images++;
-        }
+    if (existsAndIsFile((path + "/points"))) {
+        point_data = DataModule(path, TORCH_ARCHIVE);
+        if (!quiet)std::cout << "points loaded for " << path << "!\n";
     }
 }
 
-std::shared_ptr<TrainingImage> Scene::loadOne(int idx)
+void Scene::determine_image_count(bool quiet)
+{
+    int i = 1; number_of_train_images = 0;
+    while (true) {
+        auto pathn = path + "/train_images/" + std::to_string(i++) + file_extension_from_type(file_type);
+        if (!existsAndIsFile(pathn)) {
+            break;
+        }
+        number_of_train_images++;
+    }
+}
+
+std::shared_ptr<TrainingImage> Scene::loadOne(int idx, bool autoload)
 {
 #ifdef _DEBUG
     if (idx >= number_of_train_images) {
@@ -57,35 +39,40 @@ std::shared_ptr<TrainingImage> Scene::loadOne(int idx)
         throw "out of range";
     }
 #endif
-    return std::make_shared<TrainingImage>(path + "/train_images/" + std::to_string(idx+1) + ".txt",version);
+    return std::make_shared<TrainingImage>(path + "/train_images/" + std::to_string(idx + 1) + file_extension_from_type(file_type), autoload);
 }
 
-void Scene::save(const std::string& path,bool save_training_data) {
-    int vers = this->version;
+fileType_t Scene::detect_file_type()
+{
+    if (existsAndIsFile(path + "/train_images/" + std::to_string(1) + file_extension_from_type(TEXT)))return TEXT;
+    if (existsAndIsFile(path + "/train_images/" + std::to_string(1) + file_extension_from_type(CUSTOM_BINARY)))return CUSTOM_BINARY;
+    if (existsAndIsFile(path + "/train_images/" + std::to_string(1) + file_extension_from_type(TORCH_ARCHIVE)))return TORCH_ARCHIVE;
+    return -1;
+}
+
+void Scene::save(const std::string& path, fileType_t mode, bool save_training_data) {
     makeDirIfNotPresent(path);
-    //metadata
+    /*metadata, currently there is none.
     {
         std::ofstream f{ path + "/meta.txt" };
         f << vers;
-    }
+    }*/
+    std::string postfix = file_extension_from_type(mode);
     //the points
-    points->writeToFile((path + "/points.txt").c_str(), vers);
     //the training data
     if (save_training_data) {
         makeDirIfNotPresent(path + "/train_images");
         if(this->path!=path)
-            for (int i = 1; i <= number_of_train_images; ++i) {
-                std::ifstream  src(this->path + "/train_images/" + std::to_string(i) + ".txt", std::ios::binary);
-                std::ofstream  dst(path + "/train_images/" + std::to_string(i) + ".txt", std::ios::binary);
-                dst << src.rdbuf();
+            for (int i = 0; i < number_of_train_images; ++i) {
+                loadOne(i, false)->copyTo(path + "/train_images" + std::to_string(i + 1) + postfix);
             }
     }
 }
 
-int DataSet::save(const std::string& path, bool saveTrainingImages) {
+int DataSet::save(const std::string& path, fileType_t mode, bool saveTrainingImages) {
     makeDirIfNotPresent(path);
     for (int i = 0; i < scenes.size();++i) {
-        scene(i).save(path + "/" + std::to_string(i), saveTrainingImages);
+        scene(i).save(path + "/" + std::to_string(i), mode, saveTrainingImages);
     }
     return 0;
 }
@@ -96,7 +83,7 @@ void DataSet::initializeLoaders() {
     trainImageLoader = std::make_unique<ImageLoader>(img_id(0, 0), [this](img_id id) {return loadImageOfRand(id); }, *train_image_provider);
     showImageLoader = std::make_unique<ImageLoader>(img_id(0, 0), [this](img_id id) {return loadImageOf(id); }, *show_image_provider);
 }
-std::unique_ptr<DataSet> DataSet::load(int vers, const std::string& path, bool loadTrainingimagesIfPresent, bool quiet) {
+std::unique_ptr<DataSet> DataSet::load(const std::string& path, bool loadTrainingimagesIfPresent, bool quiet) {
     auto ptr = std::unique_ptr<DataSet>(new DataSet(loadTrainingimagesIfPresent));
     struct stat info;
     int scene = 0;
@@ -110,4 +97,51 @@ std::unique_ptr<DataSet> DataSet::load(int vers, const std::string& path, bool l
         ptr->initializeLoaders();
     }
     return ptr;
+}
+
+torch::Tensor DataModuleImpl::readBinFrom(std::string path, bool require_grad)
+{
+    std::ifstream f{ path , std::ios::binary};
+    int64_t ndim = readOneBinary<int64_t>(f);
+    std::vector<int64_t> dimensions;
+    //dimensions read;
+    readBinaryIntoArray(dimensions, f, ndim);
+    std::vector<float> data;
+    int tmp; size_t std_size = 1;
+    for (int i = 0; i < ndim; ++i)
+        std_size *= dimensions[i];
+    data.reserve(std_size);
+    readBinaryIntoArray(data, f, -1);//read any number of floats
+    float tmpf;
+    if (data.size() != std_size) {
+        if (data.size() % std_size != 0)throw "misaligned data";
+        int factor = data.size() / std_size;
+        dimensions.insert(dimensions.begin(), factor);
+    }
+    return torch::tensor(std::move(data), torch::TensorOptions().requires_grad(require_grad)).reshape(torch::IntArrayRef(dimensions)).cuda();
+}
+
+torch::Tensor DataModuleImpl::readTxtFrom(std::string path, bool require_grad)
+{
+    std::ifstream f{ path };
+    int ndim;
+    f >> ndim;
+    std::vector<int64_t> dimensions;
+    std::vector<float> data;
+    int tmp; size_t std_size = 1;
+    for (int i = 0; i < ndim; ++i) {
+        f >> tmp; dimensions.push_back(tmp);
+        std_size *= tmp;
+    }
+    data.reserve(std_size);
+    float tmpf;
+    //dimensions read;
+    while (f >> tmpf) data.push_back(tmpf);
+
+    if (data.size() > std_size) {
+        if (data.size() % std_size != 0)throw "misaligned data";
+        int factor = data.size() % std_size;
+        dimensions.insert(dimensions.begin(), factor);
+    }
+    return torch::tensor(std::move(data), torch::TensorOptions().requires_grad(require_grad)).reshape(torch::IntArrayRef(dimensions)).cuda();
 }

@@ -1,5 +1,6 @@
 #pragma once
 #include <math.h>
+#include <memory>
 #include "dtype4x4.cuh"
 
 //.cu files break when you use typedef, but I still want decent intellisense&cloring
@@ -10,8 +11,8 @@ typedef int CameraType_t;
 #endif
 
 enum CameraType:int{
-	GL,
-	PINHOLE_PROJECTION,
+	INTERACTIVE = -1,
+	PINHOLE_PROJECTION = 0,
 };
 
 //Interface for main camera data.
@@ -20,8 +21,12 @@ public:
 	virtual CameraType_t type() const = 0;
 	virtual ~CameraDataItf() {};
 	virtual int get_width() const = 0;
-	virtual int get_height() const= 0;
+	virtual int get_height() const = 0;
 	virtual std::unique_ptr<CameraDataItf> scaleTo(int w, int h) const = 0;
+	virtual std::string serialized(bool text) const = 0;
+	virtual std::string debug_log() const { return "unimplemented"; }
+	static std::unique_ptr<CameraDataItf> from_serial(bool text, std::istream& data);
+	static std::unique_ptr<CameraDataItf> from_serial(bool text, const std::string& data);
 };
 //Template for Partial Classes
 struct PartialCameraDataTemplate {
@@ -52,7 +57,7 @@ struct ScreenCoordsWithDepth {
 	}
 };
 /*Here for reference, delete later.
-bool __device__ __forceinline__ mapScreenCooords(float4 coords, int2& out, const int w, const int h, const PartialGLCameraData camera, float* depth = NULL) {
+bool __device__ __forceinline__ mapScreenCooords(float4 coords, int2& out, const int w, const int h, const PartialInteractiveCameraData camera, float* depth = NULL) {
 	float4 position = camera.transform * coords;
 	position = camera.perspective * position;
 	if (position.z < camera.near_clip || position.z > camera.far_clip) return false;
@@ -71,14 +76,14 @@ bool __device__ __forceinline__ mapScreenCooords(float4 coords, int2& out, const
 /*
 * When a struct is sent to a kernel, all of its components are sent as well. This is used to truncate the CameraData struct to only contain the essentials
 */
-struct PartialGLCameraData : public PartialCameraDataTemplate {
+struct PartialInteractiveCameraData : public PartialCameraDataTemplate {
 public:
 	bool use_neural = false;
 	float4x4 transform = float4x4();
 	float4x4 perspective = float4x4();
 	float near_clip = 0, far_clip = 1e20f;
-	PartialGLCameraData() :PartialCameraDataTemplate{-1, -1} {}
-	PartialGLCameraData(float near_clip, float far_clip, int w, int h) : PartialCameraDataTemplate{ w,h }, transform{}, near_clip{ near_clip }, far_clip{ far_clip }
+	PartialInteractiveCameraData() :PartialCameraDataTemplate{-1, -1} {}
+	PartialInteractiveCameraData(float near_clip, float far_clip, int w, int h) : PartialCameraDataTemplate{ w,h }, transform{}, near_clip{ near_clip }, far_clip{ far_clip }
 		{}
 	//These should be implemented for any camera type, or else the inline thing in kernels may break.
 	__hdfi__ float4 mapToWorldCoords(float4 coords) const{
@@ -110,29 +115,29 @@ constexpr float PI = 3.14159265358979323851f;
 /*
 * Camera data, full struct. Used for freeCam. Just what the standard OpenGL camera is with some extra data to make moving it around easy. The only camera type that adapts to viewport size for now.
 */
-struct CameraGLData:CameraDataItf,PartialGLCameraData {
-	virtual CameraType_t type() const { return CameraType::GL; };
+struct InteractiveCameraData:CameraDataItf,PartialInteractiveCameraData {
+	virtual CameraType_t type() const { return CameraType::INTERACTIVE; };
 	virtual int get_width() const { return w; };
 	virtual int get_height() const { return h; };
 	virtual std::unique_ptr<CameraDataItf> scaleTo(int w, int h) const {
-		auto scaled=std::make_unique<CameraGLData>(*this); scaled->w = w; scaled->h = h;
+		auto scaled=std::make_unique<InteractiveCameraData>(*this); scaled->w = w; scaled->h = h;
 		return scaled;
 	};
 	float scaleY,fov_x,fov_rad;
 	float yaw, pitch, roll;
 	bool flipped_x;
 	float3 translation;
-	CameraGLData() :PartialGLCameraData{},
+	InteractiveCameraData() :PartialInteractiveCameraData{},
 		scaleY{ 1 }, fov_x{ 0 }, fov_rad{ 0 },
 		yaw{ 0 }, pitch{ 0 }, roll{ 0 }, flipped_x{ false },
 		translation{ 0,0,0 } {};
-	CameraGLData(float scaleY,float fov_rad,float near_clip,float far_clip,float yaw=0,float pitch=0,float roll=0,bool flipped_x=false,float3 translation=make_float3(0,0,0),int w=-1,int h=-1)
-		:PartialGLCameraData{ near_clip,far_clip,w,h }, 
+	InteractiveCameraData(float scaleY,float fov_rad,float near_clip,float far_clip,float yaw=0,float pitch=0,float roll=0,bool flipped_x=false,float3 translation=make_float3(0,0,0),int w=-1,int h=-1)
+		:PartialInteractiveCameraData{ near_clip,far_clip,w,h }, 
 		scaleY{ scaleY }, fov_rad{ fov_rad },
 		yaw{ yaw }, pitch{ pitch }, roll{ roll }, flipped_x{ flipped_x },
 		translation{ translation }
 	{ recalculateTangent(); recalculateTransform(); }
-	CameraGLData(const CameraGLData& ot) = default;
+	InteractiveCameraData(const InteractiveCameraData& ot) = default;
 	void recalculateTangent() {
 		fov_x = (float) tan(fov_rad/2);
 	}
@@ -204,9 +209,9 @@ struct CameraGLData:CameraDataItf,PartialGLCameraData {
 		};
 	}
 
-	PartialGLCameraData prepareForGPU(int height, int width) const {
+	PartialInteractiveCameraData prepareForGPU(int height, int width) const {
 		//Intentional slicing
-		PartialGLCameraData data;
+		PartialInteractiveCameraData data;
 		data.far_clip = far_clip;
 		data.near_clip = near_clip;
 		data.transform = transform;
@@ -221,7 +226,8 @@ struct CameraGLData:CameraDataItf,PartialGLCameraData {
 		};
 		return data;
 	}
-	virtual ~CameraGLData() override {};
+	virtual std::string serialized(bool text) const override;
+	virtual ~InteractiveCameraData() override {};
 };
 
 
@@ -277,4 +283,6 @@ struct PinholeCameraData :CameraDataItf, PartialPinholeCameraData {
 	PinholeCameraData() {};
 	PinholeCameraData(const PinholeCameraData& ot) = default;
 	PinholeCameraData(PinholeCameraData&& ot) = default;
+	virtual std::string serialized(bool text) const override;
+	virtual std::string debug_log() const;
 };

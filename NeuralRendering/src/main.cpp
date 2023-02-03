@@ -14,7 +14,7 @@ struct cli_args {
     bool load_from_dataset_only = false;//otherwise it loads from the entire AI model.
     std::string default_output_path = default_path_AI;
     bool NO_LIVE_RENDER = false;
-    bool save_results = true; bool save_train_images = false;
+    bool save_results = false; bool save_train_images = true;
     bool train = true;
     float example_refresh_rate = -1;
     cli_args(int argc, char** argv) {
@@ -68,7 +68,7 @@ int main(int argc, char** argv)
         std::shared_ptr<NetworkPointer> network = nullptr;
         if (args.load_from_dataset_only) {
             if (!args.quiet)std::cout << "Started reading dataset...\n";
-            dataSet = std::make_shared<DataSet>(/*paths = */std::vector<std::string>{ args.dataset_path }, /*autoload = */ true, /*loadTrainData = */ true);
+            dataSet = std::make_shared<DataSet>(/*paths = */std::vector<std::string>{ args.dataset_path }, /*autoload = */ true, /*loadTrainData = */ true, args.quiet);
             if (!dataSet->isValid()) { std::cerr << "DataSet Invalid!"; return (int)std::errc::invalid_argument; }
             if (!args.quiet)std::cout << "Finished reading dataset...\n";
 
@@ -77,7 +77,7 @@ int main(int argc, char** argv)
             if (!args.quiet)std::cout << "Network initialized...\n";
         }
         else {
-            network = NetworkPointer::load(0x600, args.default_path_AI, true, true, args.quiet);
+            network = NetworkPointer::load(args.default_path_AI, true, true, args.quiet);
             dataSet = network->getDataSet();
         }
 
@@ -93,7 +93,7 @@ int main(int argc, char** argv)
                 nw.train_frame(0);
                 if (!args.quiet)std::cout << "First train done\n";
             }
-            CameraGLData cam_data{ 1,PI * 1 / 3,0.1f,1e9f };
+            std::shared_ptr<InteractiveCameraData> cam_data = std::make_shared<InteractiveCameraData>(1, PI * 1 / 3, 0.01f, 1e9f);
             if (!args.quiet)std::cout << "Initializing renderer...\n";
             Renderer r{ "Main Window" };
             r.update();
@@ -122,17 +122,16 @@ int main(int argc, char** argv)
                 }
                 auto current_frame = std::chrono::high_resolution_clock::now();
                 controller.processMovements();
-                if (cam_data.use_neural == false) {
-                    plotPointsToRenderer(r, *dataSet->scene(0).points, cam_data, Renderer::ViewTypeEnum::MAIN_VIEW);
+                if (cam_data->use_neural) {
+                    //todo? get scene from camera data?
+                    nw.plotResultToRenderer(r, dataSet->scene(0), cam_data, Renderer::ViewTypeEnum::MAIN_VIEW);
                 }
                 else {
-                    void* memory;
-                    nw.plotToRenderer(r, *dataSet->scene(0).points, cam_data, Renderer::ViewTypeEnum::MAIN_VIEW);
+                    nw.plotToRenderer(r, dataSet->scene(0), cam_data, Renderer::ViewTypeEnum::MAIN_VIEW);
                 }
 
                 if ((current_frame - last_example_update).count() * 1e-9 > example_refresh_s) {
                     nw.plot_example(r, Renderer::ViewTypeEnum::POINTS_VIEW, Renderer::ViewTypeEnum::TRAIN_VIEW_2, Renderer::ViewTypeEnum::TRAIN_VIEW_1);
-
                     last_example_update = current_frame;
                 }
                 
@@ -151,14 +150,18 @@ int main(int argc, char** argv)
             }
         }
         if (args.save_results)
-            nw.save(args.default_output_path, true, args.save_train_images);
+            nw.save(args.default_output_path, fileType::CUSTOM_BINARY, true, args.save_train_images);
         // cudaDeviceReset must be called before exiting in order for profiling and
         // tracing tools such as Nsight and Visual Profiler to show complete traces.
         auto cudaStatus = cudaDeviceReset();
         if (cudaStatus != cudaSuccess) {
-            fprintf(stderr, "cudaDeviceReset failed!");
+            std::cerr << "cudaDeviceReset failed!";
             return 1;
         }
+    }
+    catch (std::runtime_error x) {
+        std::cerr << "Uncaught error:\n" << x.what();
+        return -1;
     }
     catch (std::exception x) {
         std::cerr << "Uncaught error:\n" << x.what();

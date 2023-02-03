@@ -22,9 +22,9 @@ public:
 	cudaError_t merge_grad();
 	~Environment();
 };
-//-todo: separate into chunks? May be a little too much for now.
+//-todo: delete eventually.
 class GPUPoints {
-public:
+private:
 	std::shared_ptr<Environment> environment = nullptr;
 	int num_entries=-1;
 	void* position_memory_start=NULL;
@@ -34,7 +34,7 @@ public:
 	void* position_grad_memory_start = NULL;
 	void* color_grad_memory_start = NULL;
 
-public:
+private:
 	GPUPoints() noexcept
 		:num_entries{ 0 }, position_memory_start{ NULL }, color_memory_start{ NULL }, should_free{ false } {};
 	GPUPoints(void* gpu_position_memory, void* gpu_color_memory, int num_entries, bool should_free=true, std::shared_ptr<Environment> environment = nullptr) noexcept

@@ -4,11 +4,11 @@
 
 class CameraController {
 	Renderer& renderer;
-	CameraGLData& camera;
+	std::shared_ptr<InteractiveCameraData> camera;
 	int lastx = 0, lasty = 0;
 	bool mouse_trustable = false;
 public:
-	CameraController(Renderer& renderer, CameraGLData& camera) :renderer{ renderer }, camera{ camera } {
+	CameraController(Renderer& renderer, std::shared_ptr<InteractiveCameraData> camera) :renderer{ renderer }, camera{ camera } {
 	}
 	void processMovements();
 };

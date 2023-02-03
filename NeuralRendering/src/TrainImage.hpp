@@ -10,16 +10,31 @@
 #include "HeaderThatReenablesWarnings.h"
 //todo: comments.
 class TrainingImage {
-    std::unique_ptr<CameraDataItf> camera_data;
-    std::string pth; int vers;
+    std::shared_ptr<CameraDataItf> camera_data;
+    std::string pth;
 public:
     int width = 0; int height = 0;
     torch::Tensor target;
     bool is_loaded = false;
-    TrainingImage(const std::string& fn, int vers, bool autoload = true);
-    void reload();
+    TrainingImage(const std::string& fn, bool autoload = true);
+    void load_image();
     void unload();
+    void copyTo(const std::string& ot);
+    //deprecated, todo: remove when no longer used.
     CameraDataItf& camera() {
         return *camera_data;
     }
+    std::shared_ptr<CameraDataItf> cam() { return camera_data; };
 };
+#ifdef __NVCC__
+#define fileType_t char
+#else
+typedef char fileType_t;
+#endif
+enum fileType :fileType_t {
+    TEXT, CUSTOM_BINARY, TORCH_ARCHIVE
+};
+
+inline const char* file_extension_from_type(fileType_t mode) {
+    return (mode == TEXT ? ".txt" : (mode == CUSTOM_BINARY ? ".bin" : ""));
+}

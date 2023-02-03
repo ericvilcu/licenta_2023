@@ -8,4 +8,7 @@
 #include "HeaderThatReenablesWarnings.h"
 
 
-cudaError_t PlotPointsBackwardsPass(GPUPoints& points, const CameraDataItf& camera, int h, int w, const void* image_gradient, const void* input_image, float lr, bool environment);
+cudaError_t PlotPointsBackwardsPass_v2(const void* point_data, void* point_grad, int num_points,
+    const void* environment, void* environment_grad, int environment_resolution,
+    const std::shared_ptr<CameraDataItf> camera, int h, int w, int ndim,
+    const void* plot, const void* plot_gradient);
