@@ -156,6 +156,8 @@ int main(int argc, char** argv)
             nw.save(args.default_output_path, fileType::CUSTOM_BINARY, true, args.save_train_images);
             if (!args.quiet)std::cout << "Saved!\n";
         }
+
+        if (!args.quiet)std::cout << "Shutting down...\n";
         // cudaDeviceReset must be called before exiting in order for profiling and
         // tracing tools such as Nsight and Visual Profiler to show complete traces.
         auto cudaStatus = cudaDeviceReset();

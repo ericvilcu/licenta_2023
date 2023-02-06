@@ -4,13 +4,12 @@
 
 void Scene::load_points(bool quiet)
 {
-
-    if (existsAndIsFile((path + "/points.txt"))) {
-        point_data = DataModule(path, TEXT);
-        if (!quiet)std::cout << "points loaded for " << path << "!\n";
-    }
     if (existsAndIsFile((path + "/points.bin"))) {
         point_data = DataModule(path, CUSTOM_BINARY);
+        if (!quiet)std::cout << "points loaded for " << path << "!\n";
+    }
+    if (existsAndIsFile((path + "/points.txt"))) {
+        point_data = DataModule(path, TEXT);
         if (!quiet)std::cout << "points loaded for " << path << "!\n";
     }
     if (existsAndIsFile((path + "/points"))) {
@@ -62,10 +61,11 @@ void Scene::save(const std::string& path, fileType_t mode, bool save_training_da
     //the training data
     if (save_training_data) {
         makeDirIfNotPresent(path + "/train_images");
-        if(this->path!=path)
+        if (this->path != path) {
             for (int i = 0; i < number_of_train_images; ++i) {
                 loadOne(i, false)->copyTo(path + "/train_images/" + std::to_string(i + 1) + postfix);
             }
+        }
     }
     point_data->save(path, mode);
 }

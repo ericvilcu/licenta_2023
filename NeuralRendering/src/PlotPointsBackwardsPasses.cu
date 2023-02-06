@@ -2,55 +2,45 @@
 #include "PlotPointsBackwardsPasses.cuh"
 #include "cuda_debug_utils.cuh"
 
-/*template <typename camera_type_partial>
-__global__ void bacwards_environment(const camera_type_partial camera, int resolution, int h, int w, float4* plot_gradient, float4* gradient_out, float4* plot, float factor) {
-    int idx = threadIdx.x + blockDim.x * blockIdx.x;
-    int idy = threadIdx.y + blockDim.y * blockIdx.y;
-    if (idx < h && idy < w) {
-        int ids = idy + idx * w;
-        if (plot[ids].w < 0) {//todo: change so it makes more sense.
-            float3 direction = camera.direction_for_pixel(make_int2(idx, idy));
-            unsigned int adress = pixel_from_cubemap_coords(resolution, cubemap_coords(resolution, direction));
-            //dbg[ids] = adress;
-            atomicAdd(&gradient_out[adress].x, factor * plot_gradient[ids].x);
-            atomicAdd(&gradient_out[adress].y, factor * plot_gradient[ids].y);
-            atomicAdd(&gradient_out[adress].z, factor * plot_gradient[ids].z);
-            //atomicAdd(&gradient_out[adress].w, factor * plot_gradient[ids].w); //depth is a little more complicated.
-        }
-    }
-}*/
-
-
-__global__ void backwards_points(const PartialInteractiveCameraData camera, int ndim, float* point_data, float* points_gradient, int num_points, const float* plot_gradient) {
+template <typename camera_type_partial>
+__global__ void backwards_points(const camera_type_partial camera, int ndim, float* point_grad, const float* point_data, int num_points, const float* plot, const float* plot_grad, const float* plot_weights) {
     int idx = threadIdx.x + blockDim.x * blockIdx.x;
     if (idx < num_points) {
         int ids = idx * (3 + ndim);
+        //NOTE: d is calculated both here AND in the forward pass and could theoretically be saved.
         ScreenCoordsWithDepth d = camera.mapToScreenCoords(make_float4(point_data[ids + 0], point_data[ids + 1], point_data[ids + 2], 1));
         if (d.valid) {
             int pixel = d.coords.x + d.coords.y * camera.w;
-            //todo: depth test, somehow, probably by saving depth and weights somewhere.
-            const float* grad_start = &plot_gradient[pixel * (ndim + 1)];
-            float* point_grad_start = &(points_gradient[ids + 3]);
+            float depth = d.depth;
+            float surface_depth = plot[pixel * (ndim + 1) + ndim];
+            //I should probably move the depth test to a shared header, as well as a function for weight (which is currently always 1)
+            if (surface_depth * (1 + 0.001) < depth)return;
+            float weight_fraction = 1 / plot_weights[ids];
+            const float* grad_start = &plot_grad[pixel * (ndim + 1)];
+            float* point_grad_start = &(point_grad[ids + 3]);
             for (int i = 0; i < ndim; ++i) {
                 point_grad_start[i] += grad_start[i];
             }
+            //todo: point position refinement, somehow.
         }
     }
 }
 
 template <typename camera_type_partial>
-__global__ void bacwards_environment_v2(const camera_type_partial camera, int ndim, float* environment_grad, int environment_resolution, const float* plot, const float* plot_gradient) {
+__global__ void backwards_environment_v2(const camera_type_partial camera, int ndim, float* environment_grad, int environment_resolution, const float* plot_weights, const float* plot_grad) {
     int idx = threadIdx.x + blockDim.x * blockIdx.x;
     int idy = threadIdx.y + blockDim.y * blockIdx.y;
     if (idx < camera.h && idy < camera.w) {
-        int ids = (idy + idx * camera.w) * (ndim + 1);
-        if (plot[ids+ndim] < 0) {//todo: change so it makes more sense, possibly keeping track of what points are free while testing points.
+        int ids = (idy + idx * camera.w);
+        int ids_m = (idy + idx * camera.w) * (ndim + 1);
+        if (plot_weights[ids] <= 0) {//weight = 0 would mean no points landed there
             float3 direction = camera.direction_for_pixel(make_int2(idx, idy));
             unsigned int adress = pixel_from_cubemap_coords(environment_resolution, cubemap_coords(environment_resolution, direction));
-            for (int i = 0; i < ndim; ++i) {
-                atomicAdd(&environment_grad[adress+i], plot_gradient[ids+i]);
+            for (int i = 0; i < ndim + 1; ++i) {
+                atomicAdd(&environment_grad[adress + i], plot_grad[ids_m + i]);
             }
-            //atomicAdd(&environment_grad[adress + ndim], plot_gradient[ids + ndim]); //depth is a little more complicated.
+            //atomicAdd(&environment_grad[adress + ndim], plot_grad[ids + ndim]);
+            //NOTE: this represents depth, and was separated for no good reason.
         }
     }
 }
@@ -58,10 +48,24 @@ __global__ void bacwards_environment_v2(const camera_type_partial camera, int nd
 
 template <typename camera_type_partial>
 cudaError_t backwards_environment_for_camera_v2(const camera_type_partial& camera, int ndim, 
-    const void* environment, void* environment_grad, int environment_resolution,
-    const void* plot, const void* plot_gradient) {
+    void* environment_grad, int environment_resolution,
+    const void* plot_weights, const void* plot_grad) {
     cudaError_t cudaStatus;
-    bacwards_environment_v2 BEST_2D_KERNEL(camera.h, camera.w) (camera, ndim, (float*)environment_grad, environment_resolution, (float*)plot, (float*)plot_gradient);
+    backwards_environment_v2 BEST_2D_KERNEL(camera.h, camera.w) (camera, ndim, (float*)environment_grad, environment_resolution, (float*)plot_weights, (float*)plot_grad);
+    cudaStatus = cudaDeviceSynchronize();
+    STATUS_CHECK();
+    cudaStatus = cudaPeekAtLastError();
+    STATUS_CHECK();
+Error:
+    return cudaStatus;
+}
+
+template <typename camera_type_partial>
+cudaError_t backwards_points_for_camera_v2(const camera_type_partial& camera, int ndim,
+    const void* point_grad, const void* point_data, int num_points,
+    const void* plot, const void* plot_grad, const void* plot_weights) {
+    cudaError_t cudaStatus;
+    backwards_points BEST_LINEAR_KERNEL(num_points) (camera, ndim, (float*)point_grad, (const float*)point_data, num_points, (const float*)plot, (const float*)plot_grad, (const float*)plot_weights);
     cudaStatus = cudaDeviceSynchronize();
     STATUS_CHECK();
     cudaStatus = cudaPeekAtLastError();
@@ -71,22 +75,43 @@ Error:
 }
 
 
-cudaError_t PlotPointsBackwardsPass_v2(const void* point_data, void* point_grad, int num_points,
+
+template <typename camera_type_partial>
+cudaError_t backwards_for_camera_v2(const camera_type_partial& camera, int ndim,
+    const void* point_data, void* point_grad, int num_points,
     const void* environment, void* environment_grad, int environment_resolution,
-    const std::shared_ptr<CameraDataItf> camera, int h, int w, int ndim,
-    const void* plot, const void* plot_grad)
+    const void* plot, const void* plot_weights, const void* plot_grad){
+    cudaError_t cudaStatus = backwards_environment_for_camera_v2(camera, ndim, environment_grad, environment_resolution, plot_weights, plot_grad);
+    STATUS_CHECK();
+    cudaStatus = backwards_points_for_camera_v2(camera, ndim, point_grad, point_data, num_points, plot, plot_grad, plot_weights);
+    STATUS_CHECK();
+
+Error:
+    return cudaStatus;
+}
+
+
+cudaError_t PlotPointsBackwardsPass_v2(const std::shared_ptr<CameraDataItf> camera, int ndim,
+    const void* point_data, void* point_grad, int num_points,
+    const void* environment, void* environment_grad, int environment_resolution,
+    const void* plot, const void* plot_weights, const void* plot_grad)
 {
+    //todo? delete environment from signature and calls since it is not used?
     cudaError_t cudaStatus;
-    if (h < 0)h = camera->get_height();
-    if (w < 0)w = camera->get_width();
+    int h = camera->get_height();
+    int w = camera->get_width();
     switch (camera->type())
     {
-    case INTERACTIVE:
-        cudaStatus = backwards_environment_for_camera_v2(((InteractiveCameraData&)(*camera)).prepareForGPU(w, h), ndim, environment, environment_grad, environment_resolution, plot, plot_grad);
+    case INTERACTIVE://this branch shouldn't even be used, as in theory it would mean an interactive camera is being used for training data.
+        cudaStatus = backwards_for_camera_v2(((InteractiveCameraData&)(*camera)).prepareForGPU(w, h), ndim,
+            point_data, point_grad, num_points,
+            environment, environment_grad, environment_resolution, plot, plot_weights, plot_grad);
         STATUS_CHECK();
         break;
     case PINHOLE_PROJECTION:
-        cudaStatus = backwards_environment_for_camera_v2(((PinholeCameraData&     )(*camera)).prepareForGPU(w,h), ndim, environment, environment_grad, environment_resolution, plot, plot_grad);
+        cudaStatus = backwards_for_camera_v2(((PinholeCameraData    &)(*camera)).prepareForGPU(w, h), ndim,
+            point_data, point_grad, num_points,
+            environment, environment_grad, environment_resolution, plot, plot_weights, plot_grad);
         STATUS_CHECK();
         break;
     default:

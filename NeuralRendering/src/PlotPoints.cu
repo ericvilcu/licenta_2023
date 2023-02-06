@@ -34,7 +34,7 @@ void __global__ bundleDepthWithColor_v2(float* output, const float* weighted_col
 }
 
 template <typename CAMERA_DATA_TYPE>
-void __global__ plotKernel_v2(float* output, const float* depth_aux, const int h, const int w, const float* points, int ndim, const int l, const CAMERA_DATA_TYPE camera, const float alpha = 0.001) {
+void __global__ plotKernel_v2(float* output, const float* depth_aux, const int h, const int w, const float* points, int ndim, const int l, const CAMERA_DATA_TYPE camera) {
     int idx = threadIdx.x + blockDim.x * blockIdx.x;
     if (idx < l) {
         // X,Y,Z, (ndim 'colors')
@@ -46,7 +46,8 @@ void __global__ plotKernel_v2(float* output, const float* depth_aux, const int h
         if (!rez.valid)return;
 
         float surface_depth = depth_aux[screen_coords.x + screen_coords.y * w];
-        if (surface_depth * (1 + alpha) < depth)return;
+        //todo: move depth test to a header.
+        if (surface_depth * (1 + 0.001) < depth)return;
         float weight = 1;// color.w / (position.z - surface_depth + 0.01);
         for (int i = 0; i < ndim; ++i) {
             float* p = &output[(ndim + 1) * (screen_coords.x + screen_coords.y * w) + i];
@@ -82,9 +83,9 @@ void __global__ determineDepth(float* depth_aux, const int h, const int w, const
 }
 
 template <typename CAMERA_DATA_TYPE>
-void __global__ determineDepth_v2(float* depth_aux, const int h, const int w, const float* points, const int ndim, const int l, const CAMERA_DATA_TYPE camera) {
+void __global__ determineDepth_v2(float* depth_aux, const int h, const int w, const float* points, const int ndim, const int num_points, const CAMERA_DATA_TYPE camera) {
     int idx = threadIdx.x + blockDim.x * blockIdx.x;
-    if (idx < l) {
+    if (idx < num_points) {
         // X,Y,Z, (ndim 'colors')
         int pos = (3 + ndim) * idx;
         float4 position = make_float4(points[pos], -points[pos + 1], points[pos + 2], 1);
@@ -102,8 +103,11 @@ void __global__ determineDepth_v2(float* depth_aux, const int h, const int w, co
 }
 static_assert(sizeof(int) == sizeof(float), "Here so the atomicMin hack above works properly. If this does not work, some other suitable replacement for it should be found, potentially using atomicCAS");
 
+/*
+* Per-pixel process
+*/
 template <typename CAMERA_TYPE>
-void __global__ drawBackground_v2(float* depth_aux, float* gpu_weighted, const int h, const int w, CAMERA_TYPE camera, float* environment_data, int resolution, int ndim) {
+void __global__ drawBackgroundandBundleDepth_v2(float* depth_aux, float* gpu_weighted, const int h, const int w, CAMERA_TYPE camera, float* environment_data, int resolution, int ndim) {
     int idx = threadIdx.x + blockDim.x * blockIdx.x;
     int idy = threadIdx.y + blockDim.y * blockIdx.y;
     if (idx < h && idy < w) {
@@ -111,10 +115,22 @@ void __global__ drawBackground_v2(float* depth_aux, float* gpu_weighted, const i
         if (depth_aux[ids] > ndim * camera.far_clip) {
             float* env_data = sample_environment_data_v2(environment_data, resolution,/*direction = */camera.direction_for_pixel(make_int2(idx, idy)), ndim);
             depth_aux[ids] = -1;// camera.far_clip;//+env_data[ndim];//env_data[ndim - 1]
-            for (int i = 0; i < ndim; ++i) {
+            for (int i = 0; i < ndim + 1; ++i) {
                 gpu_weighted[(ndim+1) * ids + i] = env_data[i];
             }
-            gpu_weighted[(ndim + 1) * ids + ndim] = 1;
+            //this represents depth and was separated for no good reason.
+            //gpu_weighted[(ndim + 1) * ids + ndim] = env_data[ndim];
+        } else {
+            // modified bundleDepthWithColor_v2
+            int ids_m = ids * (ndim + 1);
+            const float* input_position = &gpu_weighted[ids_m];
+            float* output_position = &gpu_weighted[ids_m];
+            float depth_local = depth_aux[ids];
+            float weight = input_position[ndim];
+            depth_aux[ids] = weight;
+            for (int i = 0; i < ndim; ++i)
+                output_position[i] = input_position[i] / weight;
+            output_position[ndim] = depth_local;
         }
     }
 }
@@ -144,23 +160,39 @@ void __global__ clear_v2(float* buffer, float* depth_aux, int h, int w, int ndim
 
 
 template <typename CAMERA_TYPE>
-inline cudaError_t plotPointsToFloatBufferCameraType_v2(float* gpu_depth_aux, float* gpu_weighted, const int h, const int w, const int ndim, const void* points_memory, int num_points,  const void* environment_memory, int environment_resolution, const CAMERA_TYPE& camera) {
+inline cudaError_t plotPointsToFloatBufferCameraType_v2(const CAMERA_TYPE& camera, const int h, const int w, const int ndim,
+    const void* points_memory, int num_points, const void* environment_memory, int environment_resolution,
+    float* gpu_weights, float* gpu_weighted_color
+) {
     cudaError_t cudaStatus = cudaSuccess;
-
-    determineDepth_v2 BEST_LINEAR_KERNEL(num_points) (gpu_depth_aux, h, w, (float*)points_memory, ndim, num_points, camera);
+    clear_v2 BEST_2D_KERNEL(h, w) (gpu_weighted_color, gpu_weights, h, w, ndim, 0);
     cudaStatus = cudaDeviceSynchronize();
     STATUS_CHECK();
     cudaStatus = cudaPeekAtLastError();
     STATUS_CHECK();
 
-    plotKernel_v2 BEST_LINEAR_KERNEL(num_points) (gpu_weighted, gpu_depth_aux, h, w, (float*)points_memory, ndim, num_points, camera);
+    //NOTE: we use the weight memory to store the depth temporarily here.
+    determineDepth_v2 BEST_LINEAR_KERNEL(num_points) (gpu_weights, h, w, (float*)points_memory, ndim, num_points, camera);
+    cudaStatus = cudaDeviceSynchronize();
+    STATUS_CHECK();
+    cudaStatus = cudaPeekAtLastError();
+    STATUS_CHECK();
+
+    plotKernel_v2 BEST_LINEAR_KERNEL(num_points) (gpu_weighted_color, gpu_weights, h, w, (float*)points_memory, ndim, num_points, camera);
     cudaStatus = cudaDeviceSynchronize();
     STATUS_CHECK();
     cudaStatus = cudaPeekAtLastError();
     STATUS_CHECK();
 
     if (environment_memory != nullptr) {
-        drawBackground_v2 BEST_2D_KERNEL(h, w) (gpu_depth_aux, gpu_weighted, h, w, camera, (float*)environment_memory, environment_resolution, ndim);
+        drawBackgroundandBundleDepth_v2 BEST_2D_KERNEL(h, w) (gpu_weights, gpu_weighted_color, h, w, camera, (float*)environment_memory, environment_resolution, ndim);
+        cudaStatus = cudaDeviceSynchronize();
+        STATUS_CHECK();
+        cudaStatus = cudaPeekAtLastError();
+        STATUS_CHECK();
+    }
+    else {
+        bundleDepthWithColor_v2 BEST_2D_KERNEL(h, w) (gpu_weighted_color, gpu_weighted_color, gpu_weights, h, w, ndim);
         cudaStatus = cudaDeviceSynchronize();
         STATUS_CHECK();
         cudaStatus = cudaPeekAtLastError();
@@ -174,20 +206,23 @@ Error:
 /*
 * Buffers are expeted to be cleared.
 */
-cudaError_t plotPointsToFloatBuffer_v2(float* gpu_depth_aux, float* gpu_weighted, const int h, const int w, const int ndim, const void* points_memory, int num_points, const void* environment_memory, int environment_resolution, const CameraDataItf& camera) {
+cudaError_t plotPointsToFloatBuffer_v2(const CameraDataItf& camera, int h, int w, int ndim,
+    const void* points_memory, int num_points,
+    const void* environment_memory, int environment_resolution,
+    float* gpu_color, float* gpu_weights) {
     cudaError_t cudaStatus = cudaSuccess;
 
     switch (camera.type())
     {
     case INTERACTIVE: {
         auto& data = (InteractiveCameraData&)camera;
-        cudaStatus = plotPointsToFloatBufferCameraType_v2(gpu_depth_aux, gpu_weighted, h,  w, ndim, points_memory, num_points, environment_memory, environment_resolution, data.prepareForGPU(h, w));
+        cudaStatus = plotPointsToFloatBufferCameraType_v2(data.prepareForGPU(h, w), h, w, ndim, points_memory, num_points, environment_memory, environment_resolution, gpu_weights, gpu_color);
         STATUS_CHECK();
         break;
     };
     case PINHOLE_PROJECTION: {
         auto& data = (PinholeCameraData&)camera;
-        cudaStatus = plotPointsToFloatBufferCameraType_v2(gpu_depth_aux, gpu_weighted, h, w, ndim, points_memory, num_points, environment_memory, environment_resolution, data.prepareForGPU(h, w));
+        cudaStatus = plotPointsToFloatBufferCameraType_v2(data.prepareForGPU(h, w), h, w, ndim, points_memory, num_points, environment_memory, environment_resolution, gpu_weights, gpu_color);
         STATUS_CHECK();
         break;
     }
@@ -198,6 +233,59 @@ cudaError_t plotPointsToFloatBuffer_v2(float* gpu_depth_aux, float* gpu_weighted
 Error:
     return cudaStatus;
 }
+
+cudaError_t plotPointsToGPUMemory_v2(const std::shared_ptr<CameraDataItf> camera, int ndim,
+    const void* point_memory, int num_points,
+    const void* environment_memory, int environment_resolution,
+    float** memory_color, bool is_preallocated,
+    float** memory_weights, bool is_weight_preallocated)
+{
+    cudaError_t cudaStatus = cudaSuccess;
+    float* gpu_depth_aux = NULL;
+    float* gpu_weighted_color = NULL;
+    int w = camera->get_width();
+    int h = camera->get_height();
+
+    if (!is_preallocated) {
+        cudaStatus = cudaMalloc(&gpu_weighted_color, h * w * sizeof(float) * (ndim + 1));//weight/depth is not counted by ndim...
+        STATUS_CHECK();
+    }
+    else gpu_weighted_color = *memory_color;
+
+    if (memory_weights == NULL || !is_weight_preallocated) {
+        cudaStatus = cudaMalloc(&gpu_depth_aux, h * w * sizeof(float));
+        STATUS_CHECK();
+    }
+    else gpu_depth_aux = *memory_weights;
+
+    cudaStatus = plotPointsToFloatBuffer_v2(*camera,h,w,ndim,
+        point_memory,num_points,environment_memory, environment_resolution,
+        gpu_weighted_color, gpu_depth_aux
+    );
+    STATUS_CHECK();
+    if (!is_preallocated) {
+        (*memory_color) = gpu_weighted_color;
+    }
+
+    if (memory_weights == NULL) {
+        cudaStatus = cudaFree(gpu_depth_aux); gpu_depth_aux = NULL;
+    }
+    else if (!is_weight_preallocated) {
+        (*memory_weights) = gpu_depth_aux;
+    }
+
+    STATUS_CHECK();
+    //That's it.
+    return cudaStatus;
+
+Error:
+    if (!is_preallocated && gpu_weighted_color!=NULL)
+        cudaFree(gpu_weighted_color);
+    if (!is_weight_preallocated && gpu_depth_aux != NULL)
+        cudaFree(gpu_depth_aux);
+    return cudaStatus;
+}
+
 
 cudaError_t bytesToView(const void*& memory, const int h, const int w, Renderer& renderer, Renderer::ViewType viewType)
 {
@@ -241,65 +329,6 @@ Error:
     return cudaStatus;
 
 }
-
-//I really want to know how this could be abstracted better.
-void modifyIfNeccesary(int& h, int& w, const CameraDataItf& camera) {
-    if (h <= 0 || w <= 0) {
-        if (h <= 0 && w <= 0) {
-            w = camera.get_width();
-            h = camera.get_height();
-        } else {
-            if (h <= 0) {
-                h = camera.get_height() * w / camera.get_width();
-            } else {
-                w = camera.get_width() * h / camera.get_height();
-            }
-        }
-    }
-}
-
-
-cudaError_t plotPointsToGPUMemory_v2(void*& memory, int h, int w, int ndim, const void* points_memory, int num_points, const void* environment_memory, int environment_resolution, const std::shared_ptr<CameraDataItf> camera, bool is_preallocated)
-{
-    cudaError_t cudaStatus = cudaSuccess;
-    float* gpu_depth_aux = NULL;
-    float* gpu_weighted_color = NULL;
-    modifyIfNeccesary(h, w, *camera);
-    cudaStatus = cudaMalloc(&gpu_depth_aux, h * w * sizeof(float));
-    STATUS_CHECK();
-    if (!is_preallocated) {
-        cudaStatus = cudaMalloc(&gpu_weighted_color, h * w * sizeof(float) * (ndim + 1));//weight/depth is not counted by ndim...
-        STATUS_CHECK();
-    }
-    else gpu_weighted_color = (float*)memory;
-
-    clear_v2 BEST_2D_KERNEL(h, w) (gpu_weighted_color, gpu_depth_aux, h, w, ndim, 0);
-    cudaStatus = cudaDeviceSynchronize();
-    STATUS_CHECK();
-    cudaStatus = cudaPeekAtLastError();
-    STATUS_CHECK();
-
-    cudaStatus = plotPointsToFloatBuffer_v2(gpu_depth_aux, gpu_weighted_color, h, w, ndim, points_memory, num_points, environment_memory, environment_resolution, *camera);
-    STATUS_CHECK();
-
-    bundleDepthWithColor_v2 BEST_2D_KERNEL(h, w) (gpu_weighted_color, gpu_weighted_color, gpu_depth_aux, h, w, ndim);
-    cudaStatus = cudaDeviceSynchronize();
-    STATUS_CHECK();
-    cudaStatus = cudaPeekAtLastError();
-    STATUS_CHECK();
-    memory = gpu_weighted_color;
-    cudaStatus = cudaFree(gpu_depth_aux); gpu_depth_aux = NULL;
-    //That's it.
-    return cudaStatus;
-
-Error:
-    if (!is_preallocated && gpu_weighted_color!=NULL)
-        cudaFree(gpu_weighted_color);
-    if (gpu_depth_aux != NULL)
-        cudaFree(gpu_depth_aux);
-    return cudaStatus;
-}
-
 
 cudaError_t to_CPU(void*& memory, int length)
 {

@@ -19,16 +19,22 @@
 */
 cudaError_t bytesToView(const void*& memory, const int h, const int w, Renderer& renderer, Renderer::ViewType vt);
 /**
-* @brief Plots to GPU memory.
+* @brief Plots to GPU memory. May return a depth buffer if it is not null
 *
 * @param memory GPU memory, preallocated or not. specify with the is_preallocated parameter.
 */
-//cudaError_t plotPointsToGPUMemory(void*& memory, int h, int w, const GPUPoints& points, const CameraDataItf& camera, bool is_preallocated=false, bool as_bytes=true);
+cudaError_t plotPointsToGPUMemory_v2(const std::shared_ptr<CameraDataItf> camera, int ndim,
+    const void* point_memory, int num_points,
+    const void* environment_memory, int environment_resolution,
+    float** memory_color, bool is_preallocated = false,
+    float** memory_weights = NULL, bool is_weight_preallocated = false);
 
-cudaError_t plotPointsToGPUMemory_v2(void*& memory, int h, int w, int ndim, const void* points_memory, int num_points, const void* environment_memory, int environment_resolution, const std::shared_ptr<CameraDataItf> camera, bool is_preallocated = false);
-
-//cudaError_t plotPoints(const cudaSurfaceObject_t output, const int h, const int w, const GPUPoints& points, const CameraDataItf& camera);
-
-//cudaError_t plotPointsToRenderer(const Renderer& renderer, const GPUPoints& points, const CameraDataItf& camera, Renderer::ViewType vt = Renderer::ViewTypeEnum::MAIN_VIEW);
+inline cudaError_t plotPointsToGPUMemory_preallocated_v2(const std::shared_ptr<CameraDataItf> camera, int ndim,
+    const void* point_memory, int num_points, const void* environment_memory, int environment_resolution,
+    float* memory_color, float* memory_weights = NULL) {
+    return plotPointsToGPUMemory_v2(camera, ndim,
+        point_memory, num_points, environment_memory, environment_resolution,
+        &memory_color, true, (memory_weights == NULL ? NULL : &memory_weights), memory_weights != NULL);
+}
 
 cudaError_t to_CPU(void*& memory, int length);
