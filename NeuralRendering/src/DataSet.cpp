@@ -100,7 +100,7 @@ std::unique_ptr<DataSet> DataSet::load(const std::string& path, bool loadTrainin
     return ptr;
 }
 
-torch::Tensor DataModuleImpl::readBinFrom(std::string path, bool require_grad)
+torch::Tensor DataModuleImpl::readBinFrom(std::string path)
 {
     std::ifstream f{ path , std::ios::binary};
     int64_t ndim = readOneBinary<int64_t>(f);
@@ -119,7 +119,8 @@ torch::Tensor DataModuleImpl::readBinFrom(std::string path, bool require_grad)
         int factor = data.size() / std_size;
         dimensions.insert(dimensions.begin(), factor);
     }
-    return torch::tensor(std::move(data), torch::TensorOptions().requires_grad(require_grad)).reshape(torch::IntArrayRef(dimensions)).cuda();
+    torch::Tensor tsr = torch::tensor(std::move(data), torch::TensorOptions()).reshape(torch::IntArrayRef(dimensions)).cuda();
+    return tsr;
 }
 
 void DataModuleImpl::writeBinTo(std::string path, torch::Tensor what)
@@ -134,7 +135,7 @@ void DataModuleImpl::writeBinTo(std::string path, torch::Tensor what)
     writeBinary(f, what_CPU.data_ptr<float>(), what.numel());
 }
 
-torch::Tensor DataModuleImpl::readTxtFrom(std::string path, bool require_grad)
+torch::Tensor DataModuleImpl::readTxtFrom(std::string path)
 {
     std::ifstream f{ path };
     int ndim;
@@ -156,7 +157,8 @@ torch::Tensor DataModuleImpl::readTxtFrom(std::string path, bool require_grad)
         int factor = data.size() % std_size;
         dimensions.insert(dimensions.begin(), factor);
     }
-    return torch::tensor(std::move(data), torch::TensorOptions().requires_grad(require_grad)).reshape(torch::IntArrayRef(dimensions)).cuda();
+    torch::Tensor tsr = torch::tensor(std::move(data), torch::TensorOptions()).reshape(torch::IntArrayRef(dimensions)).cuda();
+    return tsr;
 }
 
 void DataModuleImpl::writeTxtTo(std::string path, torch::Tensor what){

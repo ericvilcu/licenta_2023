@@ -14,12 +14,12 @@ __global__ void backwards_points(const camera_type_partial camera, int ndim, flo
             float depth = d.depth;
             float surface_depth = plot[pixel * (ndim + 1) + ndim];
             //I should probably move the depth test to a shared header, as well as a function for weight (which is currently always 1)
-            if (surface_depth * (1 + 0.001) < depth)return;
-            float weight_fraction = 1 / plot_weights[ids];
+            if (surface_depth * (1 + 0.001) < depth || plot_weights[pixel]<=0)return;
+            float weight_fraction = 1 / plot_weights[pixel];
             const float* grad_start = &plot_grad[pixel * (ndim + 1)];
             float* point_grad_start = &(point_grad[ids + 3]);
             for (int i = 0; i < ndim; ++i) {
-                point_grad_start[i] += grad_start[i];
+                point_grad_start[i] += grad_start[i] * weight_fraction;
             }
             //todo: point position refinement, somehow.
         }

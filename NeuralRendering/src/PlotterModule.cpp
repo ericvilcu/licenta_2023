@@ -17,7 +17,7 @@ public:
 		torch::Tensor weights = torch::from_blob(tmp_weights, { view->get_height(),view->get_width() }, cudaFree, torch::TensorOptions().dtype(torch::kFloat).device(torch::kCUDA));
 		//todo: use an intrusive pointer? this is a bit stupid.
 		ctx->saved_data["cam"] = view->serialized(true);
-		ctx->save_for_backward({ points,environment,ret,weights });//some of these may not be needed.
+		ctx->save_for_backward({ points,environment,ret,weights });
 		return ret;
 	}
 	static torch::autograd::tensor_list backward(torch::autograd::AutogradContext* ctx, torch::autograd::tensor_list image_gradient) {
@@ -28,7 +28,6 @@ public:
 		torch::Tensor ret = saved_stuff[2];
 		torch::Tensor weights = saved_stuff[2];
 		std::shared_ptr<CameraDataItf> camera = CameraDataItf::from_serial(true, ctx->saved_data["cam"].toString()->string());
-		//std::cerr << camera->serialized(true) << '\n';
 
 		int ndim = points.size(-1) - 3;
 		torch::Tensor gradient_points = torch::zeros(points.sizes(), torch::TensorOptions().device(torch::kCUDA)).contiguous();
@@ -54,6 +53,5 @@ torch::Tensor PlotterImpl::forward(torch::Tensor what, std::shared_ptr<CameraDat
 	auto points = sources[idx]->pointData(what);
 	auto environment = sources[idx]->environmentData(what);
 	auto ret = PlotFunction::apply(points, environment, view);
-	//auto ret = torch::zeros({ view->get_height(),view->get_width(),points.size(-1) - 3 +1 });
 	return ret;
 }

@@ -25,27 +25,27 @@ public:
 class DataModuleImpl : public IDataModuleImpl {
 	torch::Tensor point_data;
 	torch::Tensor environment_data;
-	static torch::Tensor readBinFrom(std::string path, bool require_grad);
-	static torch::Tensor readTxtFrom(std::string path, bool require_grad);
+	static torch::Tensor readBinFrom(std::string path);
+	static torch::Tensor readTxtFrom(std::string path);
 	static void writeBinTo(std::string path, torch::Tensor what);
 	static void writeTxtTo(std::string path, torch::Tensor what);
 public:
 	DataModuleImpl(const std::string& path, fileType_t t, bool train = true) {
 		switch (t) {
 		case CUSTOM_BINARY:
-			this->point_data = register_buffer("point_data", readBinFrom(path + "/points.bin", train));
-			this->environment_data = register_buffer("environment_data", readBinFrom(path + "/environment.bin", train));
+			this->point_data = register_parameter("point_data", readBinFrom(path + "/points.bin"), train);
+			this->environment_data = register_parameter("environment_data", readBinFrom(path + "/environment.bin"), train);
 			break;
 		case TEXT:
-			this->point_data = register_buffer("point_data", readTxtFrom(path + "/points.txt", train));
-			this->environment_data = register_buffer("environment_data", readTxtFrom(path + "/environment.txt", train));
+			this->point_data = register_parameter("point_data", readTxtFrom(path + "/points.txt"), train);
+			this->environment_data = register_parameter("environment_data", readTxtFrom(path + "/environment.txt"), train);
 			break;
 		case TORCH_ARCHIVE: {
 			torch::serialize::InputArchive archive; archive.load_from(path + "/points");
 			archive.read("points", this->point_data);
 			archive.read("environment", this->environment_data);
-			this->point_data = register_buffer("point_data", this->point_data);
-			this->environment_data = register_buffer("environment_data", this->environment_data);
+			this->point_data = register_parameter("point_data", this->point_data, train);
+			this->environment_data = register_parameter("environment_data", this->environment_data, train);
 		}break;
 		default:
 			std::cerr << t << "is invalid";
@@ -75,13 +75,13 @@ public:
 		}
 	}
 	DataModuleImpl(bool train = true) {
-		this->point_data = register_buffer("point_data", torch::zeros({ 0 }));
-		this->environment_data = register_buffer("environment_data", torch::zeros({ 0 }));
+		this->point_data = register_parameter("point_data", torch::zeros({ 0 }), train);
+		this->environment_data = register_parameter("environment_data", torch::zeros({ 0 }), train);
 		this->train(train);
 	}
 	DataModuleImpl(torch::Tensor point_data, torch::Tensor environment_data, bool train = true) {
-		this->point_data = register_buffer("point_data", point_data);
-		this->environment_data = register_buffer("environment_data", environment_data);
+		this->point_data = register_parameter("point_data", point_data, train);
+		this->environment_data = register_parameter("environment_data", environment_data, train);
 		this->train(train);
 	}
 	virtual torch::Tensor pointData(torch::Tensor) override { return point_data; };

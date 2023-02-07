@@ -6,6 +6,7 @@ class PlotterImpl:public torch::nn::Module {
 	std::vector<DataModule> sources;
 public:
 	PlotterImpl(std::shared_ptr<DataSet> initial_sources) {
+		train(true);
 		for (int i = 0; i < initial_sources->num_scenes(); ++i) {
 			this->sources.emplace_back(initial_sources->scene(i).dataModule());
 		}
@@ -15,6 +16,7 @@ public:
 	}
 
 	PlotterImpl(std::vector<DataModule>&& initial_sources) {
+		train(true);
 		this->sources = std::move(initial_sources);
 		for (int idx = 0; idx < sources.size(); ++idx) {
 			register_module(std::string("Data_") + std::to_string((int)sources[idx]->getType()) + "_" + std::to_string(idx), sources[idx]);

@@ -161,7 +161,7 @@ public:
         batch_size{ batch_size },
         remaining_in_batch{ batch_size },
         mdl{},
-        optim{ {mdl->parameters(),plotter->parameters()}, torch::optim::AdamOptions()/*.lr(0.00001)*/.eps(1e-8) },
+        optim{ std::vector<torch::optim::OptimizerParamGroup>{plotter->parameters(), mdl->parameters()}, torch::optim::AdamOptions()/*.lr(0.00001)*/.eps(1e-8) },
         status(0, 0){
         
     }
@@ -219,9 +219,9 @@ public:
             optim.step();
             //Here would go other gradient-based optimizations.
             status.epochs++;
-            status.epoch_count = 1;
+            status.epoch_count += 1;
             optim.zero_grad();
-            status.loss = accumulated_loss / batch_size;
+            status.loss += accumulated_loss / batch_size;
             remaining_in_batch = batch_size;
             accumulated_loss = 0;
             return;
@@ -321,6 +321,8 @@ void NetworkPointer::train_frame(unsigned long long ms) {
     auto start = std::chrono::high_resolution_clock::now();
     auto end = start;
     int processed_frames = 0;
+    network->status.epoch_count = 0;
+    network->status.loss = 0;
     while (((end - start).count() * 1e-6) <= (double)ms)
     {
         processed_frames++;
