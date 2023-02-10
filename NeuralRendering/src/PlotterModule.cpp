@@ -9,9 +9,10 @@ public:
 		void* tmp_plot;
 		void* tmp_weights;
 		int ndim = points.size(-1) - 3;
+		int environment_resolution = environment.size(1);
 		plotPointsToGPUMemory_v2(view, ndim,
 			points.data_ptr<float>(), points.size(0),
-			environment.data_ptr<float>(), environment.size(0),
+			environment.data_ptr<float>(), environment_resolution,
 			(float**)&tmp_plot, false, (float**)&tmp_weights, false);
 		torch::Tensor ret = torch::from_blob(tmp_plot, { view->get_height(),view->get_width(), ndim + 1LL }, cudaFree, torch::TensorOptions().dtype(torch::kFloat).device(torch::kCUDA).requires_grad(points.requires_grad() || environment.requires_grad()));
 		torch::Tensor weights = torch::from_blob(tmp_weights, { view->get_height(),view->get_width() }, cudaFree, torch::TensorOptions().dtype(torch::kFloat).device(torch::kCUDA));
@@ -34,9 +35,10 @@ public:
 		torch::Tensor gradient_environment = torch::zeros(environment.sizes(), torch::TensorOptions().device(torch::kCUDA)).contiguous();
 		image_gradient[0] = image_gradient[0].cuda().contiguous();
 		cudaError_t cudaStatus = cudaError::cudaSuccess;
+		int environment_resolution = environment.size(1);
 		cudaStatus=PlotPointsBackwardsPass_v2(camera, ndim,
 			points.data_ptr<float>(), gradient_points.data_ptr<float>(), points.size(0),
-			environment.data_ptr<float>(), gradient_environment.data_ptr<float>(), environment.size(1),
+			environment.data_ptr<float>(), gradient_environment.data_ptr<float>(), environment_resolution,
 			ret.data_ptr<float>(), weights.data_ptr<float>(), image_gradient[0].data_ptr<float>());
 		torch::Tensor undefined;
 		if (cudaStatus != cudaError::cudaSuccess) {

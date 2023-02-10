@@ -1,7 +1,7 @@
 #pragma once
 #include <math.h>
 #include "CudaIncludesAndMacros.cuh"
-
+#define approx_PI 3.141592
 //Essentially, __utilf means: 1. always inline, and 2. can work on CPU *and* GPU
 #define __utilf __device__ __host__ __forceinline__
 
@@ -113,17 +113,15 @@ __utilf float4 float4_from(uchar4 rgba) {
 
 
 __utilf uint3 cubemap_coords(int resolution, float3 direction) {
-	//TODO: reinspect this function and see if an improvement is plausible
 	float3 abs_dir = abs3(direction);
-	//uchar4 clr;
-	if (abs_dir.z >= abs_dir.y && abs_dir.z >= abs_dir.z) {
+	//rewrite of: https://www.gamedev.net/forums/topic/687535-implementing-a-cube-map-lookup-function/5337472/
+	if (abs_dir.z >= abs_dir.y && abs_dir.z >= abs_dir.x) {
 		//Positive/negative Z
 		int face_idx = (direction.z > 0 ? 1 : 0);
 		float D = 0.5f / abs_dir.z;
 		uint2 uv = make_uint2((unsigned int)clamp<float>((direction.x*D+0.5f)*resolution,0.0f,(float)(resolution-1)),
 							  (unsigned int)clamp<float>((direction.y*D+0.5f)*resolution,0.0f,(float)(resolution-1)));
 		return make_uint3(face_idx, uv.x, uv.y);
-
 	}
 	else if (abs_dir.y >= abs_dir.x) {
 		//Positive/negative y
@@ -132,7 +130,6 @@ __utilf uint3 cubemap_coords(int resolution, float3 direction) {
 		uint2 uv = make_uint2((unsigned int)clamp<float>((direction.x*D+0.5f)*resolution,0.0f,(float)(resolution-1)),
 							  (unsigned int)clamp<float>((direction.z*D+0.5f)*resolution,0.0f,(float)(resolution-1)));
 		return make_uint3(face_idx, uv.x, uv.y);
-
 	}
 	else {
 		//Positive/negative x
@@ -144,7 +141,8 @@ __utilf uint3 cubemap_coords(int resolution, float3 direction) {
 	}
 }
 __utilf unsigned int pixel_from_cubemap_coords(int resolution, uint3 data) {
-	return (unsigned int)((float)data.x * resolution * resolution + clamp<float>((float)data.y, 0.0f, (float)(resolution - 1)) + clamp<float>((float)data.z, 0.0f, (float)(resolution - 1)) * resolution);
+	//clamps may be unnecesary
+	return (unsigned int)(data.x * resolution * resolution + clamp<unsigned int>(data.y, 0, resolution - 1) + clamp<unsigned int>(data.z, 0, resolution - 1) * resolution);
 }
 //Plotting stuff
 __utilf float4 sample_environment_data(uchar4* environment_data, int resolution, float3 direction) {
@@ -155,7 +153,6 @@ __utilf float4 sample_environment_data(float4* environment_data, int resolution,
 }
 
 __utilf float* sample_environment_data_v2(float* environment_data, int resolution, float3 direction, int ndim) {
-	// (ndim 'colors') and some other value that was meant to represent relative depth or something but is now unused.
 	return &environment_data[(ndim+1) * pixel_from_cubemap_coords(resolution, cubemap_coords(resolution, direction))];
 }
 

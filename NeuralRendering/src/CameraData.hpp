@@ -106,9 +106,14 @@ public:
 	__hdfi__ float3 direction_for_pixel(int2 uv) const{
 		float3 direction;
 		direction.z = 1;
-		direction.x = 2 * ((float)uv.x / w - 0.5f);
-		direction.y = 2 * ((float)uv.y / h - 0.5f);
-		return transform.inverted_direction(perspective.inverted_direction(direction));
+		direction.x = -2 * ((float)uv.x / w - 0.5f);
+		direction.y = -2 * ((float)uv.y / h - 0.5f);
+		//reverse the effects of projection
+		direction.x /= perspective[0][0];
+		direction.y /= perspective[1][1];
+		direction.z /= perspective[2][2];
+		//reverse effects of transform
+		return transform.inverted_direction(direction);
 	}
 };
 constexpr float PI = 3.14159265358979323851f;
@@ -256,8 +261,8 @@ struct PartialPinholeCameraData :PartialCameraDataTemplate {
 	__hdfi__ float3 direction_for_pixel(int2 uv) const {
 		float3 direction;
 		direction.z = 1;
-		direction.x = (ppx - (float)uv.x) / (fx * direction.z);
-		direction.y = (ppy - (float)uv.y) / (fy * direction.z);
+		direction.x = (ppx - (float)uv.x) / fx;
+		direction.y = (ppy - (float)uv.y) / fy;
 		return transform.inverted_direction(direction);
 	}
 	PartialPinholeCameraData() { ppx = ppy = fx = fy = near_clip = far_clip = 0; };

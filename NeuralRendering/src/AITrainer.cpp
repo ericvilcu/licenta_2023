@@ -25,14 +25,14 @@ inline bool stringEndsWith(const std::string& src, const std::string& ot) {
     return true;
 }
 
-
-//-todo: see if torchScript would be a viable alternative for portablility.
 class mainModuleImpl : public torch::nn::Module {
 private:
     int num_layers;
+    int ndim;
     torch::nn::AvgPool2d downsampler = nullptr;
     std::vector<std::vector<torch::nn::Conv2d>> convolutional_layers_in;
     std::vector<std::vector<torch::nn::Conv2d>> convolutional_layers_out;
+    torch::nn::Conv2d final_convolutional_layer_out = nullptr;
     void rebuild_layers(bool delete_prev=true) {
         if(delete_prev)
             for (auto& m : named_modules("",false))
@@ -45,7 +45,7 @@ private:
         torch::IntArrayRef std_kernel_size{ std_padding * 2LL + 1,std_padding * 2LL + 1 };
         for (int i = 0; i < num_layers; ++i) {
             convolutional_layers_in.emplace_back();
-            auto options = torch::nn::Conv2dOptions(4LL + last_layer_out_channels, 32, std_kernel_size).padding(std_padding);
+            auto options = torch::nn::Conv2dOptions((ndim+1LL) + last_layer_out_channels, 32, std_kernel_size).padding(std_padding);
             convolutional_layers_in[i].emplace_back(register_module<torch::nn::Conv2dImpl>(std::string("conv2din_") + std::to_string(i) + "_1", torch::nn::Conv2d(options)));
             options = torch::nn::Conv2dOptions(32, 16, std_kernel_size).padding(std_padding);
             convolutional_layers_in[i].emplace_back(register_module<torch::nn::Conv2dImpl>(std::string("conv2din_") + std::to_string(i) + "_2", torch::nn::Conv2d(options)));
@@ -56,18 +56,24 @@ private:
         last_layer_out_channels = 0;
         for (int i = 0; i < num_layers; ++i) {
             convolutional_layers_out.emplace_back();
-            auto options = torch::nn::Conv2dOptions(12LL + last_layer_out_channels, 32, std_kernel_size).padding(std_padding);
+            auto options = torch::nn::Conv2dOptions((ndim + 1LL) + 8LL + last_layer_out_channels, 32, std_kernel_size).padding(std_padding);
             convolutional_layers_out[i].emplace_back(register_module<torch::nn::Conv2dImpl>(std::string("conv2dout_") + std::to_string(i) + "_1", torch::nn::Conv2d(options)));
             options = torch::nn::Conv2dOptions(32, 16, std_kernel_size).padding(std_padding);
             convolutional_layers_out[i].emplace_back(register_module<torch::nn::Conv2dImpl>(std::string("conv2dout_") + std::to_string(i) + "_2", torch::nn::Conv2d(options)));
-            options = torch::nn::Conv2dOptions(16, 4, std_kernel_size).padding(std_padding);
+            options = torch::nn::Conv2dOptions(16, 8, std_kernel_size).padding(std_padding);
             convolutional_layers_out[i].emplace_back(register_module<torch::nn::Conv2dImpl>(std::string("conv2dout_") + std::to_string(i) + "_3", torch::nn::Conv2d(options)));
-            last_layer_out_channels = 4;
+            last_layer_out_channels = 8;
+        }
+        
+        {
+            auto options = torch::nn::Conv2dOptions(last_layer_out_channels, 4, std_kernel_size).padding(std_padding);
+            final_convolutional_layer_out = register_module<torch::nn::Conv2dImpl>("final_layer", torch::nn::Conv2d(options));
         }
     }
 public:
 
-    mainModuleImpl(int layers = 4, bool empty = false, bool set_train = true) {
+    mainModuleImpl(int ndim = 3, int layers = 4, bool empty = false, bool set_train = true) {
+        this->ndim = ndim;
         num_layers = layers;
         train(set_train);
         if (!empty) {
@@ -115,6 +121,7 @@ public:
             prev = img;
         }
 
+        prev = final_convolutional_layer_out(prev);
         //Now untranspose it.
         return prev.transpose(-2,-1).transpose(-3,-1);
     }
@@ -122,8 +129,11 @@ public:
         torch::serialize::InputArchive model_archive;
         model_archive.load_from(file);
         torch::Tensor t_num_layers;
+        torch::Tensor t_ndim;
         model_archive.read("num_layers", t_num_layers, false);
+        model_archive.read("ndim", t_ndim, false);
         num_layers = t_num_layers.item().toInt();
+        ndim = t_ndim.item().toInt();
         rebuild_layers();
         load(model_archive);
         to(torch::kCUDA);
@@ -131,8 +141,10 @@ public:
     void save_to(const std::string& file) {
         torch::serialize::OutputArchive model_archive;
         save(model_archive);
+        torch::Tensor t_ndim = torch::tensor(ndim);
         torch::Tensor t_num_layers = torch::tensor(num_layers);
         model_archive.write("num_layers", t_num_layers, false);
+        model_archive.write("ndim", t_ndim, false);
         model_archive.save_to(file);
     }
     int layers() {
@@ -155,12 +167,15 @@ public:
     float accumulated_loss = 0;
     //torch::optim::LRScheduler
     torch::optim::Adam optim;
-    Network(NetworkPointer* parent, int batch_size = 20)
+    Network() = delete;
+    Network(const Network&) = delete;
+    Network(Network&&) = delete;
+    Network(NetworkPointer* parent, int ndim, int depth, int batch_size = 20)
         :parent{ parent },
         plotter{ parent->getDataSet() },
         batch_size{ batch_size },
         remaining_in_batch{ batch_size },
-        mdl{},
+        mdl{ ndim,depth } ,
         optim{ std::vector<torch::optim::OptimizerParamGroup>{plotter->parameters(), mdl->parameters()}, torch::optim::AdamOptions()/*.lr(0.00001)*/.eps(1e-8) },
         status(0, 0){
         
@@ -304,8 +319,7 @@ public:
 };
 
 
-NetworkPointer::NetworkPointer(std::shared_ptr<DataSet> dataSet) :dataSet{ dataSet }, network{ new Network(this) }{
-
+NetworkPointer::NetworkPointer(std::shared_ptr<DataSet> dataSet, int ndim, int depth) :dataSet{ dataSet }, network{ new Network(this,ndim,depth) }{
 }
 
 //todo: implement properly;
@@ -331,7 +345,7 @@ void NetworkPointer::train_frame(unsigned long long ms) {
     }
 }
 
-void NetworkPointer::train_long(unsigned long long ms, unsigned long long report_frequency_ms){
+void NetworkPointer::train_long(unsigned long long ms, bool quiet, unsigned long long report_frequency_ms){
     auto start = std::chrono::high_resolution_clock::now();
     auto last_report = std::chrono::high_resolution_clock::now() - std::chrono::milliseconds(report_frequency_ms);
     auto end = std::chrono::high_resolution_clock::now();
@@ -339,17 +353,17 @@ void NetworkPointer::train_long(unsigned long long ms, unsigned long long report
     while (((end - start).count() * 1e-6) <= (double)ms)
     {
         processed_frames++;
-        if (network->batch_size < 5) network->train_batch();
+        if (network->batch_size < 3) network->train_batch();//prevents crashing due to insufficient memory to hold all of those images
         else network->train1();
         end = std::chrono::high_resolution_clock::now();
-        if ((end - last_report).count() * 1e-6 >= (double)report_frequency_ms) {
+        if (!quiet && (end - last_report).count() * 1e-6 >= (double)report_frequency_ms) {
             network->status.print_pretty(std::cout);
             last_report = end;
             const auto left = std::chrono::milliseconds(ms) - (end - start);
-            const auto h = std::chrono::duration_cast<std::chrono::hours>(left);
-            const auto m = std::chrono::duration_cast<std::chrono::minutes>(left - h);
-            const auto s = std::chrono::duration_cast<std::chrono::seconds>(left - h - m);
-            const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(left - h - m - s);
+            const auto h = std::chrono::duration_cast<std::chrono::hours       >(left);
+            const auto m = std::chrono::duration_cast<std::chrono::minutes     >(left - h);
+            const auto s = std::chrono::duration_cast<std::chrono::seconds     >(left - h - m);
+            const auto ms= std::chrono::duration_cast<std::chrono::milliseconds>(left - h - m - s);
             std::cout << "Time left:" << h.count() << "h " << m.count() << "m " << s.count() << "s " << ms.count() << "ms" << '\n';
             network->status.epoch_count = 0;
             network->status.loss = 0;
@@ -452,7 +466,7 @@ std::unique_ptr<NetworkPointer> NetworkPointer::load(const std::string& file, bo
     if (loadDatasetIfPresent) {
         std::shared_ptr<DataSet> dataSet = DataSet::load(file + DATA_POSTFIX, loadTrainImagesIfPresent, quiet);
         if (dataSet == nullptr)goto Error;
-        ptr = std::make_unique<NetworkPointer>(dataSet);
+        ptr = std::make_unique<NetworkPointer>(dataSet, 3, 4);
 
     } else {
         ptr = std::make_unique<NetworkPointer>();
@@ -460,7 +474,7 @@ std::unique_ptr<NetworkPointer> NetworkPointer::load(const std::string& file, bo
     //then, the model itself
     {
         {
-            ptr->network = std::make_shared<Network>(ptr.get());
+            ptr->network = std::make_shared<Network>(ptr.get(), 3, 4);
             ptr->network->mdl->load_from(file + MODEL_POSTFIX);
         }
         {
@@ -492,6 +506,29 @@ int NetworkPointer::save(const std::string& file, fileType_t mode ,bool saveData
         return dataSet->save(file + DATA_POSTFIX, mode ,saveTrainImages);
     }
     return 0;
+}
+
+void NetworkPointer::setBatchSize(int new_size){
+    this->network->optim.step();
+    this->network->optim.zero_grad();
+    this->network->batch_size = new_size;
+    this->network->remaining_in_batch = new_size;
+}
+
+void NetworkPointer::train_images(bool train)
+{
+    this->network->optim.step();
+    this->network->optim.zero_grad();
+    auto groups = this->network->optim.param_groups();
+    bool enabled = groups.size() > 1;
+    if (enabled == train)return;
+    if(train){
+        groups.push_back(network->plotter->parameters());
+    }
+    else {
+        groups.pop_back();
+    }
+    this->network->remaining_in_batch = this->network->batch_size;
 }
 
 NetworkPointer::~NetworkPointer(){}

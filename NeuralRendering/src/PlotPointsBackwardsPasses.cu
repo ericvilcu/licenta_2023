@@ -8,7 +8,7 @@ __global__ void backwards_points(const camera_type_partial camera, int ndim, flo
     if (idx < num_points) {
         int ids = idx * (3 + ndim);
         //NOTE: d is calculated both here AND in the forward pass and could theoretically be saved.
-        ScreenCoordsWithDepth d = camera.mapToScreenCoords(make_float4(point_data[ids + 0], point_data[ids + 1], point_data[ids + 2], 1));
+        ScreenCoordsWithDepth d = camera.mapToScreenCoords(make_float4(point_data[ids + 0], -point_data[ids + 1], point_data[ids + 2], 1));
         if (d.valid) {
             int pixel = d.coords.x + d.coords.y * camera.w;
             float depth = d.depth;
@@ -34,7 +34,7 @@ __global__ void backwards_environment_v2(const camera_type_partial camera, int n
         int ids = (idy + idx * camera.w);
         int ids_m = (idy + idx * camera.w) * (ndim + 1);
         if (plot_weights[ids] <= 0) {//weight = 0 would mean no points landed there
-            float3 direction = camera.direction_for_pixel(make_int2(idx, idy));
+            float3 direction = camera.direction_for_pixel(make_int2(idy, idx));
             unsigned int adress = pixel_from_cubemap_coords(environment_resolution, cubemap_coords(environment_resolution, direction));
             for (int i = 0; i < ndim + 1; ++i) {
                 atomicAdd(&environment_grad[adress + i], plot_grad[ids_m + i]);
@@ -83,8 +83,8 @@ cudaError_t backwards_for_camera_v2(const camera_type_partial& camera, int ndim,
     const void* plot, const void* plot_weights, const void* plot_grad){
     cudaError_t cudaStatus = backwards_environment_for_camera_v2(camera, ndim, environment_grad, environment_resolution, plot_weights, plot_grad);
     STATUS_CHECK();
-    cudaStatus = backwards_points_for_camera_v2(camera, ndim, point_grad, point_data, num_points, plot, plot_grad, plot_weights);
-    STATUS_CHECK();
+    //cudaStatus = backwards_points_for_camera_v2(camera, ndim, point_grad, point_data, num_points, plot, plot_grad, plot_weights);
+    //STATUS_CHECK();
 
 Error:
     return cudaStatus;

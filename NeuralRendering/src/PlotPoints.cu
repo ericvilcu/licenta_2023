@@ -113,7 +113,7 @@ void __global__ drawBackgroundandBundleDepth_v2(float* depth_aux, float* gpu_wei
     if (idx < h && idy < w) {
         int ids = idy + idx * w;
         if (depth_aux[ids] > ndim * camera.far_clip) {
-            float* env_data = sample_environment_data_v2(environment_data, resolution,/*direction = */camera.direction_for_pixel(make_int2(idx, idy)), ndim);
+            float* env_data = sample_environment_data_v2(environment_data, resolution,/*direction = */camera.direction_for_pixel(make_int2(idy, idx)), ndim);
             depth_aux[ids] = -1;// camera.far_clip;//+env_data[ndim];//env_data[ndim - 1]
             for (int i = 0; i < ndim + 1; ++i) {
                 gpu_weighted[(ndim+1) * ids + i] = env_data[i];

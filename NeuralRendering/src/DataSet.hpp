@@ -4,8 +4,8 @@
 #include "Points.hpp"
 #include "TrainImage.hpp"
 #include "BlockingQueue.hpp"
-#if __NVCC__
-static_assert(false, "DO NOT INCLUDE THIS FILE FROM .cu FILES! IT HEAVILY UTILIZES 'typedef' WHICH CURRENTLY BREAKS NVCC COMPILED FILES!")
+#ifdef __NVCC__
+static_assert(false, "DO NOT INCLUDE THIS FILE FROM .cu FILES! IT HEAVILY UTILIZES 'typedef' WHICH CURRENTLY BREAKS NVCC COMPILED FILES!");
 #endif
 
 typedef char DATA_MODULE_TYPE_T;
@@ -46,6 +46,7 @@ public:
 			archive.read("environment", this->environment_data);
 			this->point_data = register_parameter("point_data", this->point_data, train);
 			this->environment_data = register_parameter("environment_data", this->environment_data, train);
+			std::cerr << environment_data << '\n';
 		}break;
 		default:
 			std::cerr << t << "is invalid";
@@ -84,6 +85,7 @@ public:
 		this->environment_data = register_parameter("environment_data", environment_data, train);
 		this->train(train);
 	}
+	void expand_to_ndim(int ndim);
 	virtual torch::Tensor pointData(torch::Tensor) override { return point_data; };
 	virtual torch::Tensor environmentData(torch::Tensor) override { return environment_data; };
 	virtual DATA_MODULE_TYPE_T getType() override { return SIMPLE; }
@@ -107,7 +109,6 @@ private:
 	fileType_t file_type;
 public:
 	int index = 0;
-	//std::shared_ptr<GPUPoints> points;
 	void load_points(bool quiet = true);
 	void determine_image_count(bool quiet = true);
 	Scene(const std::string path, int index, bool autoload = true, bool load_train_data = true, bool quiet = true)
@@ -122,6 +123,7 @@ public:
 		}
 	}
 	int num_train_images() { return number_of_train_images; };
+	void expand_to_ndim(int ndim) { point_data->expand_to_ndim(ndim); };
 	std::shared_ptr<TrainingImage> loadOne(int idx, bool autoload=true);
 	fileType_t detect_file_type();
 	void save(const std::string& path, fileType_t mode, bool save_training_data=false);
@@ -150,44 +152,44 @@ class DataSet {
 	void initializeLoaders();
 public:
 	std::pair<img_id, std::shared_ptr<TrainingImage>> loadImageOf(img_id id) {
-		//restricts to 1 scene for now.
-		return std::make_pair(img_id(0, (id.second + 1) % scene(0).num_train_images()), scene(0).loadOne(id.second));
+		const int scene_id = id.first, image_id = id.second;
+		if (image_id == scene(scene_id).num_train_images() - 1)
+			return std::make_pair(img_id((scene_id + 1LL) % num_scenes(), 0), scene(scene_id).loadOne(image_id));
+		return std::make_pair(img_id(scene_id, image_id + 1), scene(scene_id).loadOne(image_id));
 	};
 	std::pair<img_id, std::shared_ptr<TrainingImage>> loadImageOfRand(img_id id) {
-		//restricts to 1 scene for now.
-		return std::make_pair(img_id(0, ((unsigned int)rand()) % scene(0).num_train_images()), scene(0).loadOne(id.second));
+		const int scene_id = id.first, image_id = id.second;
+		const int new_scene_id = abs(rand()) % num_scenes(); const int new_image_id = abs(rand()) % scene(new_scene_id).num_train_images();
+		return std::make_pair(img_id(new_scene_id, new_image_id), scene(scene_id).loadOne(image_id));
 	};
 
 	DataSet(const std::vector<std::string>& paths, bool autoload, bool loadTrainData = true, bool quiet = true)
 		:
-		//restricts to 1 scene for now.
-		scenes{ {paths[0], 0, autoload, loadsTrainData, quiet} },
+		scenes{},
 		loadsTrainData{ loadTrainData } {
-		initializeLoaders();
-		/*for (const auto& path : paths) {
-			scenes.emplace_back(path, autoload, loadsTrainData, max_samples_each, max_points_each);
-		}*/
+		for (int i = 0; i < paths.size(); ++i) {
+			scenes.emplace_back(paths[i], i, autoload, loadsTrainData, quiet);
+		}
+		if(loadsTrainData)initializeLoaders();
 	}
 	size_t num_scenes() { return scenes.size(); }
 	std::pair<Scene&, std::shared_ptr<TrainingImage>> next_example() {
-		//restricts to 1 scene for now.
 		auto img = show_image_provider->pop();
 #if _DEBUG
 		if (img == nullptr)
 			throw "IMAGE BUFFER GOT INVALID OUTPUT";
 #endif
-		return { scene(0), img };
+		return { scene(img->scene_id), img };
 	}
 	std::pair<Scene&, std::shared_ptr<TrainingImage>> next_train() {
-		//restricts to 1 scene for now.
 		auto img = train_image_provider->pop();
 #if _DEBUG
 		if (img == nullptr)
 			throw "IMAGE BUFFER GOT INVALID OUTPUT";
 #endif
-		return { scene(0), img };
+		return { scene(img->scene_id), img };
 	}
-	//Expensive
+
 	bool isValid() {//todo: check 1 train show as well or something
 		if (scenes.size() < 0)return false;
 
@@ -201,6 +203,10 @@ public:
 	}
 	Scene& scene(int idx) {
 		return scenes[idx];
+	}
+
+	void expand_to_ndim(int ndim) {
+		for (auto& scene : scenes)scene.expand_to_ndim(ndim);
 	}
 
 	int save(const std::string& path, fileType_t mode, bool saveTrainingImages);

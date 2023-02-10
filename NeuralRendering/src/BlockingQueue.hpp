@@ -3,8 +3,8 @@
 #include <mutex>
 #include <condition_variable>
 #include <functional>
-#if __NVCC__
-static_assert(false, "DO NOT INCLUDE THIS FILE FROM .cu FILES! IT UTILIZES 'typedef' WHICH CURRENTLY BREAKS NVCC COMPILED FILES!")
+#ifdef __NVCC__
+static_assert(false, "DO NOT INCLUDE THIS FILE FROM .cu FILES! IT UTILIZES 'typedef' WHICH CURRENTLY BREAKS NVCC COMPILED FILES!");
 #endif
 template <typename T>
 class BlockingQueue {

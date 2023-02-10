@@ -13,10 +13,11 @@ class TrainingImage {
     std::shared_ptr<CameraDataItf> camera_data;
     std::string pth;
 public:
+    int scene_id;
     int width = 0; int height = 0;
     torch::Tensor target;
     bool is_loaded = false;
-    TrainingImage(const std::string& fn, bool autoload = true);
+    TrainingImage(const std::string& fn, int scene_id, bool autoload = true);
     void load_image();
     void unload();
     void copyTo(const std::string& ot);

@@ -10,7 +10,7 @@ fileType_t getFileType(const std::string& pth) {
 }
 
 //todo: rewrite this entire function slowly.
-TrainingImage::TrainingImage(const std::string& fn, bool autoload) : pth{ fn } {
+TrainingImage::TrainingImage(const std::string& fn, int scene_id, bool autoload) : pth{ fn }, scene_id{ scene_id } {
     if (autoload)load_image();
 }
 

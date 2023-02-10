@@ -41,6 +41,10 @@ struct dtype4x4 {
         return m[idx];
     }
 
+    __hdfi__ const DTYPE* operator[] (const size_t idx) const {
+        return m[idx];
+    }
+
     __hdfi__ DTYPE4 operator*(const DTYPE4& v) const {
         DTYPE4 ret;
         ret.x = m[0][0] * v.x + m[1][0] * v.y + m[2][0] * v.z + m[3][0] * v.w;
@@ -237,11 +241,17 @@ struct dtype4x4 {
         ret.y = m[1][0] * v.x + m[1][1] * v.y + m[1][2] * v.z;
         ret.z = m[2][0] * v.x + m[2][1] * v.y + m[2][2] * v.z;
         return ret;
-
     }
     //Essentially applying a matrix, for vectors that represent a direction and not a position.
     __hdfi__ DTYPE3 inverted_direction(const DTYPE3 v) const {
         return inv_rotated(v);
+        //Inverse of: (ignoring any [3] and .w)
+        //DTYPE4 ret;
+        //ret.x = m[0][0] * v.x + m[1][0] * v.y + m[2][0] * v.z + m[3][0] * v.w;
+        //ret.y = m[0][1] * v.x + m[1][1] * v.y + m[2][1] * v.z + m[3][1] * v.w;
+        //ret.z = m[0][2] * v.x + m[1][2] * v.y + m[2][2] * v.z + m[3][2] * v.w;
+        //ret.w = m[0][3] * v.x + m[1][3] * v.y + m[2][3] * v.z + m[3][3] * v.w;
+        //return ret;
     }
 
     __hdfi__ dtype4x4& operator*=(const DTYPE f) { return *this = *this * f; }

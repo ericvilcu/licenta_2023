@@ -38,7 +38,7 @@ std::shared_ptr<TrainingImage> Scene::loadOne(int idx, bool autoload)
         throw "out of range";
     }
 #endif
-    return std::make_shared<TrainingImage>(path + "/train_images/" + std::to_string(idx + 1) + file_extension_from_type(file_type), autoload);
+    return std::make_shared<TrainingImage>(path + "/train_images/" + std::to_string(idx + 1) + file_extension_from_type(file_type), index, autoload);
 }
 
 fileType_t Scene::detect_file_type()
@@ -81,7 +81,8 @@ int DataSet::save(const std::string& path, fileType_t mode, bool saveTrainingIma
 void DataSet::initializeLoaders() {
     train_image_provider = std::make_unique<ImageQueue>(5, nullptr);
     show_image_provider = std::make_unique<ImageQueue>(5, nullptr);
-    trainImageLoader = std::make_unique<ImageLoader>(img_id(0, 0), [this](img_id id) {return loadImageOfRand(id); }, *train_image_provider);
+    //todo: option for load image type for training
+    trainImageLoader = std::make_unique<ImageLoader>(img_id(0, 0), [this](img_id id) {return loadImageOf(id); }, *train_image_provider);
     showImageLoader = std::make_unique<ImageLoader>(img_id(0, 0), [this](img_id id) {return loadImageOf(id); }, *show_image_provider);
 }
 std::unique_ptr<DataSet> DataSet::load(const std::string& path, bool loadTrainingimagesIfPresent, bool quiet) {
@@ -175,5 +176,21 @@ void DataModuleImpl::writeTxtTo(std::string path, torch::Tensor what){
         //could do '\n's occasionally but this is only to test edge-case scenarios with hand-made files ayway.
         f << float_ptr[i] << ' ';
     }
+}
+
+void DataModuleImpl::expand_to_ndim(int ndim)
+{
+    int current_dim = point_data.size(-1) - 3;
+    int extra = ndim - current_dim;
+    if (extra == 0)return;
+
+    //TODO: pad with random values instead
+    point_data.set_requires_grad(false);
+    point_data = torch::nn::functional::pad(point_data, torch::nn::functional::PadFuncOptions({ 0,extra,0,0 })).contiguous();
+    point_data.set_requires_grad(true);
+
+    environment_data.set_requires_grad(false);
+    environment_data = torch::nn::functional::pad(environment_data, torch::nn::functional::PadFuncOptions({ 0,extra, 0,0, 0,0, 0,0 })).contiguous();
+    environment_data.set_requires_grad(true);
 }
 

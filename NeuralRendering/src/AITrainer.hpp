@@ -27,12 +27,12 @@ public:
             out << "loss=" << loss / std::max(1,epoch_count) << '\n';
         }
     };
-    NetworkPointer(std::shared_ptr<DataSet> dataSet);
+    NetworkPointer(std::shared_ptr<DataSet> dataSet, int ndim, int depth);
     trainingStatus getTrainingStatus();
 
     void train_frame(unsigned long long ms);
                                                                 //every minute seems about fair.
-    void train_long(unsigned long long ms, unsigned long long report_frequency_ms=1000 * 60);
+    void train_long(unsigned long long ms, bool quiet = false, unsigned long long report_frequency_ms=1000 * 60);
     /**
      * @brief Gets a before/after/from image. If you change these every frame you will be unwell.
      * 
@@ -50,7 +50,9 @@ public:
     static std::unique_ptr<NetworkPointer> load(const std::string& file, bool loadDatasetIfPresent = true, bool loadTrainImagesIfPresent = false, bool quiet = true);
     int save(const std::string& file, fileType_t mode, bool saveDataset = true, bool saveTrainImages = false);
     //todo: some way to add more data
+    void setBatchSize(int new_size);
     //todo: some way to combine scenes
+    void train_images(bool train);
     //This may be needed as shared_ptr's destructor may not be visible from any other place.
     ~NetworkPointer();
 };
