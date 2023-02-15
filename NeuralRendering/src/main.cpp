@@ -7,11 +7,6 @@
 #include "AITrainer.hpp"
 
 struct cli_args {
-    typedef char tasks_t;
-    enum tasks:tasks_t {
-        TRAIN_OR_RENDER,
-        CONSTRUCT_DATASET,
-    };
     bool quiet = false;
     std::vector<std::string> datasets_path;
     bool timeout = false; float timeout_s = 60 * 30;
@@ -24,7 +19,7 @@ struct cli_args {
     int batch_size = 3;
     int ndim = 3;
     int nn_depth = 4;
-    tasks_t task = TRAIN_OR_RENDER;
+    bool new_workspace = false;
 
     cli_args(int argc, char** argv) {
         if (argc == 1) {
@@ -46,7 +41,7 @@ struct cli_args {
             else if (v == "--no-train") { train = false; }
             else if (v == "--extra-channels") { ndim = atoi(argv[++i]) + 3; }
             else if (v == "--nn-depth") { nn_depth = atoi(argv[++i]); }
-            else if (v == "--make-workspace") { task = CONSTRUCT_DATASET; }
+            else if (v == "--make-workspace") { new_workspace = true; }
             else if (v == "--example-refresh") { example_refresh_rate = atof(argv[++i]); }
             else if (v == "--help" || v == "-h" || v == "-?") {
                 std::cerr << "todo: write help\n";
@@ -70,95 +65,99 @@ int main(int argc, char** argv)
     cli_args args{ argc,argv };
     if(!args.quiet)std::cout << "All libraries loaded.\n";
     try {
+        if (args.new_workspace) {
+            if (!args.quiet)std::cout << "Started reading dataset...\n";
+            auto _dataSet = std::make_shared<DataSet>(args.datasets_path, /*autoload = */ true, /*loadTrainData = */ false, args.quiet);
+            if (!_dataSet->isValid()) { std::cerr << "DataSet Invalid!"; return (int)std::errc::invalid_argument; }
+            if (!args.quiet)std::cout << "Finished reading dataset...\n";
+            _dataSet->expand_to_ndim(args.ndim);
+
+            if (!args.quiet)std::cout << "Initializing new network...\n";
+            auto _network = std::make_shared<NetworkPointer>(_dataSet,args.ndim,args.nn_depth);
+            if (!args.quiet)std::cout << "Network initialized...\n";
+
+            if (!args.quiet)std::cout << "Saving new workspace...\n";
+            _network->save(args.workspace, fileType::CUSTOM_BINARY, true, args.save_train_images);
+            if (!args.quiet)std::cout << "New workspace initialized...\n";
+        }
+
         std::shared_ptr<DataSet> dataSet = nullptr;
         std::shared_ptr<NetworkPointer> network = nullptr;
-        if (args.task == cli_args::CONSTRUCT_DATASET) {
-            if (!args.quiet)std::cout << "Started reading dataset...\n";
-            dataSet = std::make_shared<DataSet>(args.datasets_path, /*autoload = */ true, /*loadTrainData = */ false, args.quiet);
-            if (!dataSet->isValid()) { std::cerr << "DataSet Invalid!"; return (int)std::errc::invalid_argument; }
-            if (!args.quiet)std::cout << "Finished reading dataset...\n";
-            dataSet->expand_to_ndim(args.ndim);
-            if (!args.quiet)std::cout << "Initializing network...\n";
-            network = std::make_shared<NetworkPointer>(dataSet,args.ndim,args.nn_depth);
-            if (!args.quiet)std::cout << "Network initialized...\n";
-        }
-        else {
-            if (!args.quiet)std::cout << "Initializing network and data...\n";
-            network = NetworkPointer::load(args.workspace, true, true, args.quiet);
-            if (!args.quiet)std::cout << "Network and data initialized...\n";
-            dataSet = network->getDataSet();
-        }
+        if (!args.quiet)std::cout << "Loading network and data from workspace...\n";
+        network = NetworkPointer::load(args.workspace, true, true, args.quiet);
+        if (!args.quiet)std::cout << "Network and data loaded...\n";
+        dataSet = network->getDataSet();
 
         NetworkPointer& nw = *network;
-
-        if (args.task == cli_args::TRAIN_OR_RENDER) {
-            nw.setBatchSize(args.batch_size);
-            nw.train_images(args.train_environment);
-            if (args.NO_LIVE_RENDER) {
-                if (args.timeout)
-                    nw.train_long((unsigned long long)(args.timeout_s * 1e3), args.quiet);
-                else std::cerr << "Please provide a timeout value.";
+        nw.setBatchSize(args.batch_size);
+        nw.train_images(args.train_environment);
+        if (args.NO_LIVE_RENDER) {
+            if (args.timeout)
+                nw.train_long((unsigned long long)(args.timeout_s * 1e3), args.quiet);
+            else std::cerr << "Please provide a timeout value.";
+        }
+        else {
+            if (args.train) {
+                if (!args.quiet)std::cout << "First train (initializes some torch things)\n";
+                nw.train_frame(0);
+                if (!args.quiet)std::cout << "First train done\n";
             }
-            else {
+            std::shared_ptr<InteractiveCameraData> cam_data = std::make_shared<InteractiveCameraData>(1, PI * 1 / 3, 0.01f, 1e9f);
+            if (!args.quiet)std::cout << "Initializing renderer...\n";
+            Renderer r{ "Main Window" };
+            r.update();
+            //std::this_thread::sleep_for(std::chrono::milliseconds(1));//allow idle time.
+            r.ensureWH(1664, 512);
+            auto old_frame = std::chrono::high_resolution_clock::now();
+            //std::this_thread::sleep_for(std::chrono::milliseconds(1));
+            CameraController controller{ r,cam_data };//       x0  x1  y0  y1  z flexible-resolution
+            r.createView(Renderer::ViewTypeEnum::MAIN_VIEW   , .0, .5, .0, .5, 0, true);
+            r.createView(Renderer::ViewTypeEnum::TRAIN_VIEW_1, .5, 1., .0, .5, 0, false);
+            r.createView(Renderer::ViewTypeEnum::TRAIN_VIEW_2, .5, 1., .5, 1., 0, false);
+            r.createView(Renderer::ViewTypeEnum::POINTS_VIEW , .0, .5, .5, 1., 0, false);
+            if (!args.quiet)std::cout << "Renderer initialized...\n";
+            auto last_example_update = std::chrono::high_resolution_clock::now().operator-=(std::chrono::nanoseconds((long long)5e9));
+            auto example_refresh_s = args.example_refresh_rate;
+            r.update();
+            auto all_start = std::chrono::high_resolution_clock::now();
+            while (!r.shouldClose()) {
                 if (args.train) {
-                    if (!args.quiet)std::cout << "First train (initializes some torch things)\n";
-                    nw.train_frame(0);
-                    if (!args.quiet)std::cout << "First train done\n";
+                    nw.train_frame(100);
+                    if (!args.quiet) {
+                        auto& status = nw.getTrainingStatus();
+                        if (status.epoch_count != 0)status.print_pretty(std::cout);
+                    }
                 }
-                std::shared_ptr<InteractiveCameraData> cam_data = std::make_shared<InteractiveCameraData>(1, PI * 1 / 3, 0.01f, 1e9f);
-                if (!args.quiet)std::cout << "Initializing renderer...\n";
-                Renderer r{ "Main Window" };
+                else {
+                    //std::cout << cam_data.translation.x << ' ' << cam_data.translation.y << ' ' << cam_data.translation.z << '\n';
+                    //std::cout << cam_data.transform << '\n';
+                }
+                auto current_frame = std::chrono::high_resolution_clock::now();
+                controller.processMovements();
+                if (cam_data->use_neural) {
+                    //todo? get scene from camera data?
+                    nw.plotResultToRenderer(r, dataSet->scene(0), cam_data, Renderer::ViewTypeEnum::MAIN_VIEW);
+                }
+                else {
+                    nw.plotToRenderer(r, dataSet->scene(0), cam_data, Renderer::ViewTypeEnum::MAIN_VIEW);
+                }
+
+                if ((current_frame - last_example_update).count() * 1e-9 > example_refresh_s) {
+                    nw.plot_example(r, Renderer::ViewTypeEnum::POINTS_VIEW, Renderer::ViewTypeEnum::TRAIN_VIEW_2, Renderer::ViewTypeEnum::TRAIN_VIEW_1);
+                    last_example_update = current_frame;
+                }
+
                 r.update();
-                //std::this_thread::sleep_for(std::chrono::milliseconds(1));//allow idle time.
-                r.ensureWH(1664, 512);
-                auto old_frame = std::chrono::high_resolution_clock::now();
-                //std::this_thread::sleep_for(std::chrono::milliseconds(1));
-                CameraController controller{ r,cam_data };//       x0  x1  y0  y1  z flexible-resolution
-                r.createView(Renderer::ViewTypeEnum::MAIN_VIEW   , .0, .5, .0, .5, 0, true);
-                r.createView(Renderer::ViewTypeEnum::TRAIN_VIEW_1, .5, 1., .0, .5, 0, false);
-                r.createView(Renderer::ViewTypeEnum::TRAIN_VIEW_2, .5, 1., .5, 1., 0, false);
-                r.createView(Renderer::ViewTypeEnum::POINTS_VIEW , .0, .5, .5, 1., 0, false);
-                if (!args.quiet)std::cout << "Renderer initialized...\n";
-                auto last_example_update = std::chrono::high_resolution_clock::now().operator-=(std::chrono::nanoseconds((long long)5e9));
-                auto example_refresh_s = args.example_refresh_rate;
-                r.update();
-                auto all_start = std::chrono::high_resolution_clock::now();
-                while (!r.shouldClose()) {
-                    if (args.train) {
-                        nw.train_frame(100);
-                        if (!args.quiet)nw.getTrainingStatus().print_pretty(std::cout);
-                    }
-                    else {
-                        //std::cout << cam_data.translation.x << ' ' << cam_data.translation.y << ' ' << cam_data.translation.z << '\n';
-                        //std::cout << cam_data.transform << '\n';
-                    }
-                    auto current_frame = std::chrono::high_resolution_clock::now();
-                    controller.processMovements();
-                    if (cam_data->use_neural) {
-                        //todo? get scene from camera data?
-                        nw.plotResultToRenderer(r, dataSet->scene(0), cam_data, Renderer::ViewTypeEnum::MAIN_VIEW);
-                    }
-                    else {
-                        nw.plotToRenderer(r, dataSet->scene(0), cam_data, Renderer::ViewTypeEnum::MAIN_VIEW);
-                    }
+                auto delta = current_frame - old_frame;
+                //std::cout << "FPS:" << delta.count() / 1e12 << '\n';
+                old_frame = std::chrono::high_resolution_clock::now();
+                //todo: some kind of system for calculating the average framerate.
+                std::this_thread::sleep_for(std::chrono::milliseconds(1));//allow idle time.
 
-                    if ((current_frame - last_example_update).count() * 1e-9 > example_refresh_s) {
-                        nw.plot_example(r, Renderer::ViewTypeEnum::POINTS_VIEW, Renderer::ViewTypeEnum::TRAIN_VIEW_2, Renderer::ViewTypeEnum::TRAIN_VIEW_1);
-                        last_example_update = current_frame;
-                    }
-
-                    r.update();
-                    auto delta = current_frame - old_frame;
-                    //std::cout << "FPS:" << delta.count() / 1e12 << '\n';
-                    old_frame = std::chrono::high_resolution_clock::now();
-                    //todo: some kind of system for calculating the average framerate.
-                    std::this_thread::sleep_for(std::chrono::milliseconds(1));//allow idle time.
-
-                    if (args.timeout) {
-                        auto curr = std::chrono::high_resolution_clock::now();
-                        if ((curr - all_start).count() * 1e-9 > args.timeout_s)
-                            break;
-                    }
+                if (args.timeout) {
+                    auto curr = std::chrono::high_resolution_clock::now();
+                    if ((curr - all_start).count() * 1e-9 > args.timeout_s)
+                        break;
                 }
             }
         }
@@ -174,6 +173,10 @@ int main(int argc, char** argv)
             std::cerr << "cudaDeviceReset failed!";
             return 1;
         }
+    }
+    catch (torch::Error x) {
+        std::cerr << x.what() << '\n';
+        return -1;
     }
     catch (std::runtime_error x) {
         std::cerr << "Uncaught error:\n" << x.what();

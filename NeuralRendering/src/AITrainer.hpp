@@ -11,10 +11,12 @@ class NetworkPointer {
 private:
     std::shared_ptr<DataSet> dataSet;//dataSet above Network, as it should be initialized beforehand.
     std::shared_ptr<Network> network;
+    //creates an empty optimizer for proper loading.
+    NetworkPointer(std::shared_ptr<DataSet> dataSet, std::string network_path, std::string optim_path);
 public:
     NetworkPointer() {};
     struct trainingStatus {
-        int epoch_count = 1;
+        int epoch_count = 0;
         int epochs;
         float loss;
         trainingStatus(int ep, float ls) {
@@ -28,7 +30,7 @@ public:
         }
     };
     NetworkPointer(std::shared_ptr<DataSet> dataSet, int ndim, int depth);
-    trainingStatus getTrainingStatus();
+    trainingStatus& getTrainingStatus();
 
     void train_frame(unsigned long long ms);
                                                                 //every minute seems about fair.

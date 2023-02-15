@@ -35,7 +35,7 @@ __global__ void backwards_environment_v2(const camera_type_partial camera, int n
         int ids_m = (idy + idx * camera.w) * (ndim + 1);
         if (plot_weights[ids] <= 0) {//weight = 0 would mean no points landed there
             float3 direction = camera.direction_for_pixel(make_int2(idy, idx));
-            unsigned int adress = pixel_from_cubemap_coords(environment_resolution, cubemap_coords(environment_resolution, direction));
+            unsigned int adress = (ndim+1)*pixel_from_cubemap_coords(environment_resolution, cubemap_coords(environment_resolution, direction));
             for (int i = 0; i < ndim + 1; ++i) {
                 atomicAdd(&environment_grad[adress + i], plot_grad[ids_m + i]);
             }
@@ -83,8 +83,8 @@ cudaError_t backwards_for_camera_v2(const camera_type_partial& camera, int ndim,
     const void* plot, const void* plot_weights, const void* plot_grad){
     cudaError_t cudaStatus = backwards_environment_for_camera_v2(camera, ndim, environment_grad, environment_resolution, plot_weights, plot_grad);
     STATUS_CHECK();
-    //cudaStatus = backwards_points_for_camera_v2(camera, ndim, point_grad, point_data, num_points, plot, plot_grad, plot_weights);
-    //STATUS_CHECK();
+    cudaStatus = backwards_points_for_camera_v2(camera, ndim, point_grad, point_data, num_points, plot, plot_grad, plot_weights);
+    STATUS_CHECK();
 
 Error:
     return cudaStatus;
@@ -102,11 +102,13 @@ cudaError_t PlotPointsBackwardsPass_v2(const std::shared_ptr<CameraDataItf> came
     int w = camera->get_width();
     switch (camera->type())
     {
-    case INTERACTIVE://this branch shouldn't even be used, as in theory it would mean an interactive camera is being used for training data.
-        cudaStatus = backwards_for_camera_v2(((InteractiveCameraData&)(*camera)).prepareForGPU(w, h), ndim,
+    case INTERACTIVE:
+        //this branch shouldn't even be used, as in theory it would mean an interactive camera is being used for training data.
+        throw "Can't use interactive camera for backwards pass.";
+        /*cudaStatus = backwards_for_camera_v2(((InteractiveCameraData&)(*camera)).prepareForGPU(w, h), ndim,
             point_data, point_grad, num_points,
             environment, environment_grad, environment_resolution, plot, plot_weights, plot_grad);
-        STATUS_CHECK();
+        STATUS_CHECK();*/
         break;
     case PINHOLE_PROJECTION:
         cudaStatus = backwards_for_camera_v2(((PinholeCameraData    &)(*camera)).prepareForGPU(w, h), ndim,

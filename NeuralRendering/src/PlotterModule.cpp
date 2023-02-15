@@ -45,6 +45,7 @@ public:
 			std::cerr << "CUDA ERROR IN BACKWARDS PASS:" << cudaGetErrorString(cudaStatus) << '\n';
 			return { undefined, undefined, undefined };
 		}
+		gradient_points.transpose(-1, 0)[0] = 1;
 		return { gradient_points, gradient_environment, undefined };
 	}
 };

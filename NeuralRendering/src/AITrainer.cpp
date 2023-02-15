@@ -66,11 +66,17 @@ private:
         }
         
         {
-            auto options = torch::nn::Conv2dOptions(last_layer_out_channels, 4, std_kernel_size).padding(std_padding);
+            auto options = torch::nn::Conv2dOptions(last_layer_out_channels, 4, 1).padding(0);
             final_convolutional_layer_out = register_module<torch::nn::Conv2dImpl>("final_layer", torch::nn::Conv2d(options));
         }
     }
 public:
+
+    mainModuleImpl(const std::string& path) {
+        train(true);
+        this->to(torch::kCUDA);
+        this->load_from(path);
+    }
 
     mainModuleImpl(int ndim = 3, int layers = 4, bool empty = false, bool set_train = true) {
         this->ndim = ndim;
@@ -170,6 +176,15 @@ public:
     Network() = delete;
     Network(const Network&) = delete;
     Network(Network&&) = delete;
+    Network(NetworkPointer* parent)
+        :parent{ parent },
+        plotter{ parent->getDataSet() },
+        batch_size{ batch_size },
+        remaining_in_batch{ batch_size },
+        mdl{ 1,1 },
+        optim{ std::vector<torch::optim::OptimizerParamGroup>{}, torch::optim::AdamOptions()/*.lr(0.00001)*/.eps(1e-8) },
+        status(0, 0) {
+    }
     Network(NetworkPointer* parent, int ndim, int depth, int batch_size = 20)
         :parent{ parent },
         plotter{ parent->getDataSet() },
@@ -178,7 +193,18 @@ public:
         mdl{ ndim,depth } ,
         optim{ std::vector<torch::optim::OptimizerParamGroup>{plotter->parameters(), mdl->parameters()}, torch::optim::AdamOptions()/*.lr(0.00001)*/.eps(1e-8) },
         status(0, 0){
-        
+    }
+
+
+    Network(NetworkPointer* parent, const std::string& network_path, const std::string& optim_path)
+        :parent{ parent },
+        plotter{ parent->getDataSet() },
+        batch_size{ batch_size },
+        remaining_in_batch{ batch_size },
+        mdl{ network_path },
+        optim{ std::vector<torch::optim::OptimizerParamGroup>{plotter->parameters(), mdl->parameters()}, torch::optim::AdamOptions()/*.lr(0.00001)*/.eps(1e-8) },
+        status(0, 0){
+        torch::serialize::InputArchive optim_arc; optim_arc.load_from(optim_path); optim.load(optim_arc);
     }
 
     /// <summary>
@@ -322,8 +348,10 @@ public:
 NetworkPointer::NetworkPointer(std::shared_ptr<DataSet> dataSet, int ndim, int depth) :dataSet{ dataSet }, network{ new Network(this,ndim,depth) }{
 }
 
+NetworkPointer::NetworkPointer(std::shared_ptr<DataSet> dataSet, std::string network_path, std::string optim_path) : dataSet{ dataSet }, network{ new Network(this,network_path,optim_path) }{}
+
 //todo: implement properly;
-NetworkPointer::trainingStatus NetworkPointer::getTrainingStatus() {
+NetworkPointer::trainingStatus& NetworkPointer::getTrainingStatus() {
     return network->status;
 }
 //todo: implement properly;
@@ -466,13 +494,9 @@ std::unique_ptr<NetworkPointer> NetworkPointer::load(const std::string& file, bo
     if (loadDatasetIfPresent) {
         std::shared_ptr<DataSet> dataSet = DataSet::load(file + DATA_POSTFIX, loadTrainImagesIfPresent, quiet);
         if (dataSet == nullptr)goto Error;
-        ptr = std::make_unique<NetworkPointer>(dataSet, 3, 4);
-
-    } else {
+        ptr = std::unique_ptr<NetworkPointer>(new NetworkPointer(dataSet, file + MODEL_POSTFIX, file + OPTIM_POSTFIX));
+    } else {//branch may be broken
         ptr = std::make_unique<NetworkPointer>();
-    }
-    //then, the model itself
-    {
         {
             ptr->network = std::make_shared<Network>(ptr.get(), 3, 4);
             ptr->network->mdl->load_from(file + MODEL_POSTFIX);
@@ -481,6 +505,8 @@ std::unique_ptr<NetworkPointer> NetworkPointer::load(const std::string& file, bo
             torch::serialize::InputArchive optim_archive;
             optim_archive.load_from(file + OPTIM_POSTFIX);
             ptr->network->optim.load(optim_archive);
+            ptr->network->optim.add_param_group(ptr->network->mdl->parameters());
+            ptr->network->optim.add_param_group(ptr->network->plotter->parameters());
         }
     }
     return ptr;
@@ -517,18 +543,7 @@ void NetworkPointer::setBatchSize(int new_size){
 
 void NetworkPointer::train_images(bool train)
 {
-    this->network->optim.step();
-    this->network->optim.zero_grad();
-    auto groups = this->network->optim.param_groups();
-    bool enabled = groups.size() > 1;
-    if (enabled == train)return;
-    if(train){
-        groups.push_back(network->plotter->parameters());
-    }
-    else {
-        groups.pop_back();
-    }
-    this->network->remaining_in_batch = this->network->batch_size;
+    network->plotter->set_train(train);
 }
 
 NetworkPointer::~NetworkPointer(){}

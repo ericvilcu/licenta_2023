@@ -59,6 +59,12 @@ public:
 			out.write(data.key(), sub_archive);
 		}
 	}
+
+	void set_train(bool train) {
+		for (auto& s : sources)
+			s->set_train(train);
+		this->train(train);
+	}
 };
 
 TORCH_MODULE(Plotter);

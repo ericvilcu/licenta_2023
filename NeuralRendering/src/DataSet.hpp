@@ -86,15 +86,17 @@ public:
 		this->train(train);
 	}
 	void expand_to_ndim(int ndim);
+	void set_train(bool train) {
+		this->point_data.set_requires_grad(train);
+		this->environment_data.set_requires_grad(train);
+		this->train(train);
+	}
 	virtual torch::Tensor pointData(torch::Tensor) override { return point_data; };
 	virtual torch::Tensor environmentData(torch::Tensor) override { return environment_data; };
 	virtual DATA_MODULE_TYPE_T getType() override { return SIMPLE; }
 	bool is_valid() {
 		//may want to add more stuff here...
 		return point_data.sizes().size() == 2 && environment_data.sizes().size() == 4;//point/channel and cube_face/x/y/channel
-	}
-	static DataModuleImpl load_from_file(std::string file) {
-		//TODO
 	}
 };
 

@@ -183,14 +183,39 @@ void DataModuleImpl::expand_to_ndim(int ndim)
     int current_dim = point_data.size(-1) - 3;
     int extra = ndim - current_dim;
     if (extra == 0)return;
+    if (extra > 0) {
+        point_data.set_requires_grad(false);
+        {
+            std::vector<int64_t> pad_sizes;
+            for (auto& sz : point_data.sizes()) {
+                pad_sizes.push_back(sz);
+            }
+            pad_sizes[pad_sizes.size() - 1] = extra;
+            torch::Tensor pad_values = torch::rand(pad_sizes, torch::TensorOptions().device(torch::kCUDA));
+            point_data = torch::cat({ point_data, pad_values }, -1).contiguous();
+        }
+        point_data.set_requires_grad(true);
 
-    //TODO: pad with random values instead
-    point_data.set_requires_grad(false);
-    point_data = torch::nn::functional::pad(point_data, torch::nn::functional::PadFuncOptions({ 0,extra,0,0 })).contiguous();
-    point_data.set_requires_grad(true);
+        environment_data.set_requires_grad(false);
+        {
+            std::vector<int64_t> pad_sizes;
+            for (auto& sz : environment_data.sizes()) {
+                pad_sizes.push_back(sz);
+            }
+            pad_sizes[pad_sizes.size() - 1] = extra;
+            torch::Tensor pad_values = torch::rand(pad_sizes, torch::TensorOptions().device(torch::kCUDA));
+            environment_data = torch::cat({ environment_data , pad_values }, -1).contiguous();
+        }
+        environment_data.set_requires_grad(true);
+    }
+    else {
+        point_data.set_requires_grad(false);
+        point_data = torch::narrow(point_data, -1, 0, ndim + 3).contiguous();
+        point_data.set_requires_grad(true);
 
-    environment_data.set_requires_grad(false);
-    environment_data = torch::nn::functional::pad(environment_data, torch::nn::functional::PadFuncOptions({ 0,extra, 0,0, 0,0, 0,0 })).contiguous();
-    environment_data.set_requires_grad(true);
+        environment_data.set_requires_grad(false);
+        environment_data = torch::narrow(environment_data, -1, 0, ndim + 3).contiguous();
+        environment_data.set_requires_grad(true);
+    }
 }
 

@@ -48,7 +48,6 @@ def patchImages(cameras_txt,images_txt,custom_bin_image_folder,overwrite=False,i
         rotation_mat = -rotation_mat.transpose()
         translation = np.matmul(rotation_mat,translation)
         
-        #translation = -np.array([TX,TY,TZ])
         if PN>0:
             print(img)
             print(*[rotation_mat,translation,[TX,TY,TZ],[QW,QZ,QY,QX]],sep='\n');PN-=1
@@ -125,6 +124,7 @@ def make_dummy_environment(custom_bin_path, extra_color_channels:int=0,resolutio
         for face in range(6):
             for x in range(resolution):
                 for y in range(resolution):
+                    #clr = [face/6,x/resolution,y/resolution]
                     f.write(struct.pack("fff"+("f"*extra_color_channels) + "f", *map(float,clr+([0]*extra_color_channels)+[depth])))
 """
 Not sure if this is worth automating, I may want to configure some things manually for best speed/results
@@ -177,7 +177,7 @@ if __name__ == "__main__":
             else: clr=rgbi
         else:
             if(rgbi == None): clr=rgbp
-            else: clr = list(map(lambda pi:est_frac*(pi[1]-pi[0]*est_frac),zip(rgbp,rgbi)))
+            else: clr = list(map(lambda pi:(pi[1]-pi[0]*est_frac)/est_frac,zip(rgbp,rgbi)))
         print("colors:",rgbp,rgbi,clr)
         make_dummy_environment(ENVD,clr=clr)
         print("Dummy environment created.")
