@@ -34,7 +34,7 @@ public:
 
     void train_frame(unsigned long long ms);
                                                                 //every minute seems about fair.
-    void train_long(unsigned long long ms, bool quiet = false, unsigned long long report_frequency_ms=1000 * 60);
+    void train_long(unsigned long long nano_time, unsigned long long nano_autosave_time, const std::string& workspace_folder, bool quiet = false, unsigned long long report_frequency_ms = 1e9 * 60);
     /**
      * @brief Gets a before/after/from image. If you change these every frame you will be unwell.
      * 
@@ -44,9 +44,9 @@ public:
     /**
     * @brief Plots to renderer a scene from the perspective of a camera, using the neural renderer.
     */
-    cudaError_t plotResultToRenderer(Renderer& renderer, const Scene& scene, const std::shared_ptr<CameraDataItf> camera, const Renderer::ViewType viewType);
+    cudaError_t plotResultToRenderer(Renderer& renderer, const Scene& scene, const std::shared_ptr<InteractiveCameraData> camera, const Renderer::ViewType viewType);
 
-    cudaError_t plotToRenderer(Renderer& renderer, const Scene& scene, const std::shared_ptr<CameraDataItf> camera, const Renderer::ViewType viewType);
+    cudaError_t plotToRenderer(Renderer& renderer, const Scene& scene, const std::shared_ptr<InteractiveCameraData> camera, const Renderer::ViewType viewType);
     std::shared_ptr<DataSet> getDataSet() { return dataSet; }
     void setDataSet(std::shared_ptr<DataSet> dataSet_new) { dataSet = dataSet_new; }
     static std::unique_ptr<NetworkPointer> load(const std::string& file, bool loadDatasetIfPresent = true, bool loadTrainImagesIfPresent = false, bool quiet = true);
@@ -56,6 +56,7 @@ public:
     //todo: some way to combine scenes
     void train_images(bool train);
     //This may be needed as shared_ptr's destructor may not be visible from any other place.
+    torch::Tensor forward(int sceneId, std::shared_ptr<CameraDataItf> camera);
     ~NetworkPointer();
 };
 

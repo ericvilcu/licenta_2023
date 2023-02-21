@@ -179,10 +179,10 @@ public:
     Network(NetworkPointer* parent)
         :parent{ parent },
         plotter{ parent->getDataSet() },
-        batch_size{ batch_size },
-        remaining_in_batch{ batch_size },
+        batch_size{ 1 },
+        remaining_in_batch{ 1 },
         mdl{ 1,1 },
-        optim{ std::vector<torch::optim::OptimizerParamGroup>{}, torch::optim::AdamOptions()/*.lr(0.00001)*/.eps(1e-8) },
+        optim{ std::vector<torch::optim::OptimizerParamGroup>{}, torch::optim::AdamOptions() },
         status(0, 0) {
     }
     Network(NetworkPointer* parent, int ndim, int depth, int batch_size = 20)
@@ -191,7 +191,7 @@ public:
         batch_size{ batch_size },
         remaining_in_batch{ batch_size },
         mdl{ ndim,depth } ,
-        optim{ std::vector<torch::optim::OptimizerParamGroup>{plotter->parameters(), mdl->parameters()}, torch::optim::AdamOptions()/*.lr(0.00001)*/.eps(1e-8) },
+        optim{ std::vector<torch::optim::OptimizerParamGroup>{plotter->parameters(), mdl->parameters()}, torch::optim::AdamOptions() },
         status(0, 0){
     }
 
@@ -199,10 +199,10 @@ public:
     Network(NetworkPointer* parent, const std::string& network_path, const std::string& optim_path)
         :parent{ parent },
         plotter{ parent->getDataSet() },
-        batch_size{ batch_size },
-        remaining_in_batch{ batch_size },
+        batch_size{ 1 },
+        remaining_in_batch{ 1 },
         mdl{ network_path },
-        optim{ std::vector<torch::optim::OptimizerParamGroup>{plotter->parameters(), mdl->parameters()}, torch::optim::AdamOptions()/*.lr(0.00001)*/.eps(1e-8) },
+        optim{ std::vector<torch::optim::OptimizerParamGroup>{plotter->parameters(), mdl->parameters()}, torch::optim::AdamOptions() },
         status(0, 0){
         torch::serialize::InputArchive optim_arc; optim_arc.load_from(optim_path); optim.load(optim_arc);
     }
@@ -373,21 +373,22 @@ void NetworkPointer::train_frame(unsigned long long ms) {
     }
 }
 
-void NetworkPointer::train_long(unsigned long long ms, bool quiet, unsigned long long report_frequency_ms){
+void NetworkPointer::train_long(unsigned long long ns, unsigned long long save_ns, const std::string& workspace_folder, bool quiet, unsigned long long report_ns) {
     auto start = std::chrono::high_resolution_clock::now();
-    auto last_report = std::chrono::high_resolution_clock::now() - std::chrono::milliseconds(report_frequency_ms);
+    auto last_report = std::chrono::high_resolution_clock::now() - std::chrono::milliseconds(report_ns);
+    auto last_save = std::chrono::high_resolution_clock::now() - std::chrono::milliseconds(save_ns);
     auto end = std::chrono::high_resolution_clock::now();
     int processed_frames = 0;
-    while (((end - start).count() * 1e-6) <= (double)ms)
+    while (std::chrono::nanoseconds(end - start).count() <= ns)
     {
         processed_frames++;
         if (network->batch_size < 3) network->train_batch();//prevents crashing due to insufficient memory to hold all of those images
         else network->train1();
         end = std::chrono::high_resolution_clock::now();
-        if (!quiet && (end - last_report).count() * 1e-6 >= (double)report_frequency_ms) {
+        if (!quiet && std::chrono::nanoseconds(end - last_report).count() >= report_ns) {
             network->status.print_pretty(std::cout);
             last_report = end;
-            const auto left = std::chrono::milliseconds(ms) - (end - start);
+            const auto left = std::chrono::nanoseconds(ns) - (end - start);
             const auto h = std::chrono::duration_cast<std::chrono::hours       >(left);
             const auto m = std::chrono::duration_cast<std::chrono::minutes     >(left - h);
             const auto s = std::chrono::duration_cast<std::chrono::seconds     >(left - h - m);
@@ -395,6 +396,12 @@ void NetworkPointer::train_long(unsigned long long ms, bool quiet, unsigned long
             std::cout << "Time left:" << h.count() << "h " << m.count() << "m " << s.count() << "s " << ms.count() << "ms" << '\n';
             network->status.epoch_count = 0;
             network->status.loss = 0;
+        }
+        if (save_ns > -1 && std::chrono::nanoseconds(end - last_save).count() >= save_ns) {
+            last_save = end;
+            if (!quiet)std::cout << "Saving to: " << workspace_folder << "...\n";
+            this->save(workspace_folder, fileType::CUSTOM_BINARY, true, true);
+            if (!quiet)std::cout << "Saved!\n";
         }
     }
 }
@@ -442,7 +449,8 @@ void NetworkPointer::plot_example(Renderer& r, Renderer::ViewType points, Render
     }
 }
 
-cudaError_t NetworkPointer::plotResultToRenderer(Renderer& renderer, const Scene& scene, std::shared_ptr<CameraDataItf> camera, const Renderer::ViewType viewType)
+//Should have really just separate camera data and options..
+cudaError_t NetworkPointer::plotResultToRenderer(Renderer& renderer, const Scene& scene, std::shared_ptr<InteractiveCameraData> camera, const Renderer::ViewType viewType)
 {
     int w, h;
     cudaError_t cudaStatus = cudaSuccess;
@@ -462,9 +470,8 @@ cudaError_t NetworkPointer::plotResultToRenderer(Renderer& renderer, const Scene
 }
 
 //todo: include more options.
-cudaError_t NetworkPointer::plotToRenderer(Renderer& renderer, const Scene& scene, std::shared_ptr<CameraDataItf> camera, const Renderer::ViewType viewType)
+cudaError_t NetworkPointer::plotToRenderer(Renderer& renderer, const Scene& scene, std::shared_ptr<InteractiveCameraData> camera, const Renderer::ViewType viewType)
 {
-    //todo: add more stuff in INTERACTIVE camera to view different channels.
     int w, h;
     cudaError_t cudaStatus = cudaSuccess;
     const auto& view = renderer.getView(viewType);
@@ -473,15 +480,36 @@ cudaError_t NetworkPointer::plotToRenderer(Renderer& renderer, const Scene& scen
 
     torch::Tensor tmp_tensor;
 
-    //NOTE: removes all but the first 4 dimensions.
-    tmp_tensor = network->plot_one(scene, camera->scaleTo(w, h)).slice(-1, 0, 4);
+    tmp_tensor = network->plot_one(scene, camera->scaleTo(w, h));
+
+    int channels = tmp_tensor.size(-1);//Note: one is the depth channel. The weight channel is the one thing not included.
+    //Now slice it to the proper dimensions...
+    if (camera->debug_channels == 1) {
+        int p = (channels + (camera->debug_channel_start) % channels) % channels;
+        tmp_tensor = tmp_tensor.slice(-1, p, p + 1);
+        tmp_tensor = torch::cat({ tmp_tensor,tmp_tensor,tmp_tensor }, -1);
+    } else { // if (camera->debug_channels == 3)
+        int pr = (channels + (camera->debug_channel_start) % channels) % channels;
+        int pg = (channels + (camera->debug_channel_start + 1) % channels) % channels;
+        int pb = (channels + (camera->debug_channel_start + 2) % channels) % channels;
+        tmp_tensor = torch::cat({ tmp_tensor.slice(-1, pr, pr + 1) ,tmp_tensor.slice(-1, pg, pg + 1),tmp_tensor.slice(-1, pb, pb + 1) }, -1);
+    }
+    //TODO? based on some camera option, normalise/tonemap?
+
+    //Set the alpha channel to 1
+    tmp_tensor = torch::nn::functional::pad(tmp_tensor, torch::nn::functional::PadFuncOptions({ 0,1 }).value(1));
+    //Modify it to the bytes to project to the renderer and make it contignuous
     tmp_tensor = (tmp_tensor * 255).clamp(0, 255).to(caffe2::kByte, false, false).to_dense().contiguous();
 
     void* tmp;
     tmp = tmp_tensor.data_ptr<unsigned char>();
     cudaStatus = bytesToView(*(const void**)&tmp, tmp_tensor.size(0), tmp_tensor.size(1), renderer, viewType);
-
     return cudaStatus;
+}
+
+torch::Tensor NetworkPointer::forward(int sceneId, std::shared_ptr<CameraDataItf> camera)
+{
+    return network->process(dataSet->scene(sceneId), camera);
 }
 
 #define MODEL_POSTFIX "/model"

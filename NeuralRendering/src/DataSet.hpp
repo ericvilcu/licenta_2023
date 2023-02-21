@@ -4,6 +4,7 @@
 #include "Points.hpp"
 #include "TrainImage.hpp"
 #include "BlockingQueue.hpp"
+#include "stream_binary_utils.hpp"
 #ifdef __NVCC__
 static_assert(false, "DO NOT INCLUDE THIS FILE FROM .cu FILES! IT HEAVILY UTILIZES 'typedef' WHICH CURRENTLY BREAKS NVCC COMPILED FILES!");
 #endif
@@ -34,19 +35,21 @@ public:
 		switch (t) {
 		case CUSTOM_BINARY:
 			this->point_data = register_parameter("point_data", readBinFrom(path + "/points.bin"), train);
-			this->environment_data = register_parameter("environment_data", readBinFrom(path + "/environment.bin"), train);
+			if (existsAndIsFile(path + "/environment.bin"))
+				this->environment_data = register_parameter("environment_data", readBinFrom(path + "/environment.bin"), train);
 			break;
 		case TEXT:
 			this->point_data = register_parameter("point_data", readTxtFrom(path + "/points.txt"), train);
-			this->environment_data = register_parameter("environment_data", readTxtFrom(path + "/environment.txt"), train);
+			if(existsAndIsFile(path + "/environment.txt"))
+				this->environment_data = register_parameter("environment_data", readTxtFrom(path + "/environment.txt"), train);
 			break;
 		case TORCH_ARCHIVE: {
+			bool has_environment;
 			torch::serialize::InputArchive archive; archive.load_from(path + "/points");
 			archive.read("points", this->point_data);
-			archive.read("environment", this->environment_data);
+			has_environment=archive.try_read("environment", this->environment_data);
 			this->point_data = register_parameter("point_data", this->point_data, train);
-			this->environment_data = register_parameter("environment_data", this->environment_data, train);
-			std::cerr << environment_data << '\n';
+			if (has_environment)this->environment_data = register_parameter("environment_data", this->environment_data, train);
 		}break;
 		default:
 			std::cerr << t << "is invalid";
@@ -58,20 +61,20 @@ public:
 		switch (mode) {
 			case CUSTOM_BINARY:
 				writeBinTo(path + "/points.bin", this->point_data);
-				writeBinTo(path + "/environment.bin", this->environment_data);
+				if (environment_data.defined())writeBinTo(path + "/environment.bin", this->environment_data);
 				break;
 			case TEXT:
 				writeTxtTo(path + "/points.txt", this->point_data);
-				writeTxtTo(path + "/environment.txt", this->environment_data);
+				if (environment_data.defined())writeTxtTo(path + "/environment.txt", this->environment_data);
 				break;
 			case TORCH_ARCHIVE: {
 				torch::serialize::OutputArchive archive;
 				archive.write("points", this->point_data);
-				archive.write("environment", this->environment_data);
+				if (environment_data.defined())archive.write("environment", this->environment_data);
 				archive.save_to(path + "/points");
 			}break;
 			default:
-				std::cerr << "mode "<<mode << " is invalid\n";
+				std::cerr << "mode " << mode << " is invalid\n";
 				throw "invalid mode";
 		}
 	}
@@ -143,6 +146,7 @@ class DataSet {
 	typedef std::pair<int, int> img_id;//todo: dto?
 	typedef ImageQueue::producer<img_id> ImageLoader;
 	std::vector<Scene> scenes;
+	int train_scenes = 0;
 	//Note: keep these 4 in this order or else they do not get properly destroyed and throw ugly errors
 	std::unique_ptr<ImageQueue> train_image_provider = nullptr, show_image_provider = nullptr;
 	std::unique_ptr<ImageLoader> trainImageLoader = nullptr, showImageLoader = nullptr;
@@ -151,17 +155,17 @@ class DataSet {
 		:scenes{},
 		loadsTrainData{ load_train_data } {
 	}
-	void initializeLoaders();
+	void initializeLoaders(bool train_order_rand = true);
 public:
 	std::pair<img_id, std::shared_ptr<TrainingImage>> loadImageOf(img_id id) {
 		const int scene_id = id.first, image_id = id.second;
 		if (image_id == scene(scene_id).num_train_images() - 1)
-			return std::make_pair(img_id((scene_id + 1LL) % num_scenes(), 0), scene(scene_id).loadOne(image_id));
+			return std::make_pair(img_id((scene_id + 1LL) % train_scenes, 0), scene(scene_id).loadOne(image_id));
 		return std::make_pair(img_id(scene_id, image_id + 1), scene(scene_id).loadOne(image_id));
 	};
 	std::pair<img_id, std::shared_ptr<TrainingImage>> loadImageOfRand(img_id id) {
 		const int scene_id = id.first, image_id = id.second;
-		const int new_scene_id = abs(rand()) % num_scenes(); const int new_image_id = abs(rand()) % scene(new_scene_id).num_train_images();
+		const int new_scene_id = abs(rand()) % train_scenes; const int new_image_id = abs(rand()) % scene(new_scene_id).num_train_images();
 		return std::make_pair(img_id(new_scene_id, new_image_id), scene(scene_id).loadOne(image_id));
 	};
 
@@ -171,6 +175,7 @@ public:
 		loadsTrainData{ loadTrainData } {
 		for (int i = 0; i < paths.size(); ++i) {
 			scenes.emplace_back(paths[i], i, autoload, loadsTrainData, quiet);
+			if (scenes[i].num_train_images() > 0)train_scenes += 1;
 		}
 		if(loadsTrainData)initializeLoaders();
 	}

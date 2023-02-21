@@ -27,7 +27,8 @@ cudaError_t plotPointsToGPUMemory_v2(const std::shared_ptr<CameraDataItf> camera
     const void* point_memory, int num_points,
     const void* environment_memory, int environment_resolution,
     float** memory_color, bool is_preallocated = false,
-    float** memory_weights = NULL, bool is_weight_preallocated = false);
+    float** memory_weights = NULL, bool is_weight_preallocated = false,
+    bool needs_clear = true);
 
 inline cudaError_t plotPointsToGPUMemory_preallocated_v2(const std::shared_ptr<CameraDataItf> camera, int ndim,
     const void* point_memory, int num_points, const void* environment_memory, int environment_resolution,
@@ -38,3 +39,4 @@ inline cudaError_t plotPointsToGPUMemory_preallocated_v2(const std::shared_ptr<C
 }
 
 cudaError_t to_CPU(void*& memory, int length);
+cudaError_t to_GPU(void*& memory, int length);

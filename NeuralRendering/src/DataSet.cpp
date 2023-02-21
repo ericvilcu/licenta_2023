@@ -78,11 +78,14 @@ int DataSet::save(const std::string& path, fileType_t mode, bool saveTrainingIma
     return 0;
 }
 
-void DataSet::initializeLoaders() {
+void DataSet::initializeLoaders(bool random_train_load) {
     train_image_provider = std::make_unique<ImageQueue>(5, nullptr);
     show_image_provider = std::make_unique<ImageQueue>(5, nullptr);
     //todo: option for load image type for training
-    trainImageLoader = std::make_unique<ImageLoader>(img_id(0, 0), [this](img_id id) {return loadImageOf(id); }, *train_image_provider);
+    if(random_train_load)
+        trainImageLoader = std::make_unique<ImageLoader>(img_id(0, 0), [this](img_id id) {return loadImageOfRand(id); }, *train_image_provider);
+    else
+        trainImageLoader = std::make_unique<ImageLoader>(img_id(0, 0), [this](img_id id) {return loadImageOf(id); }, *train_image_provider);
     showImageLoader = std::make_unique<ImageLoader>(img_id(0, 0), [this](img_id id) {return loadImageOf(id); }, *show_image_provider);
 }
 std::unique_ptr<DataSet> DataSet::load(const std::string& path, bool loadTrainingimagesIfPresent, bool quiet) {
@@ -94,6 +97,7 @@ std::unique_ptr<DataSet> DataSet::load(const std::string& path, bool loadTrainin
         if (stat(scene_path.c_str(), &info))break;//if it is inaccessible
         if (!(bool)(info.st_mode & S_IFDIR))break;//or it is not a directory
         ptr->scenes.emplace_back(scene_path,/*index=*/scene-1,/*autoload=*/true, loadTrainingimagesIfPresent, quiet);
+        if (ptr->scenes[scene-1].num_train_images() > 0)ptr->train_scenes++;
     }
     if (loadTrainingimagesIfPresent && ptr->isValid()) {
         ptr->initializeLoaders();
@@ -204,8 +208,10 @@ void DataModuleImpl::expand_to_ndim(int ndim)
             }
             pad_sizes[pad_sizes.size() - 1] = extra;
             torch::Tensor pad_values = torch::rand(pad_sizes, torch::TensorOptions().device(torch::kCUDA));
-            environment_data = torch::cat({ environment_data , pad_values }, -1).contiguous();
+            //NOTE: depth is not randomized, it is initialized with whatever was in the file and is always at the back.
+            environment_data = torch::cat({ environment_data.slice(-1,0,-1), pad_values, environment_data.slice(-1,-1)}, -1).contiguous();
         }
+
         environment_data.set_requires_grad(true);
     }
     else {

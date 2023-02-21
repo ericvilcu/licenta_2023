@@ -2,15 +2,17 @@
 #include <iostream>
 #include <thread>
 #include "Renderer.hpp"
-#include "PlotPoints.cuh"
+//#include "PlotPoints.cuh"
 #include "CameraController.hpp"
 #include "AITrainer.hpp"
+#include <opencv2/opencv.hpp>
 
 struct cli_args {
     bool quiet = false;
     std::vector<std::string> datasets_path;
     bool timeout = false; float timeout_s = 60 * 30;
     std::string workspace = "";
+    std::string sample_save_path = "";
     bool NO_LIVE_RENDER = false;
     bool save_results = false; bool save_train_images = true;
     bool train = true;
@@ -20,6 +22,7 @@ struct cli_args {
     int ndim = 3;
     int nn_depth = 4;
     bool new_workspace = false;
+    float autosave_freq = -1;//I somehow lost 3hrs of training so I'm putting this option in.
 
     cli_args(int argc, char** argv) {
         if (argc == 1) {
@@ -38,14 +41,16 @@ struct cli_args {
             else if (v == "--dataset") { load_set = true; datasets_path.push_back(argv[++i]);}
             else if (v == "--workspace") { load_set = true; workspace = argv[++i]; }
             else if (v == "--no-render") { NO_LIVE_RENDER = true; }
+            else if (v == "--autosave-freq") { autosave_freq = atof(argv[++i]); }
             else if (v == "--no-train") { train = false; }
             else if (v == "--extra-channels") { ndim = atoi(argv[++i]) + 3; }
             else if (v == "--nn-depth") { nn_depth = atoi(argv[++i]); }
             else if (v == "--make-workspace") { new_workspace = true; }
             else if (v == "--example-refresh") { example_refresh_rate = atof(argv[++i]); }
+            else if (v == "--save-samples") { sample_save_path = argv[++i]; }
             else if (v == "--help" || v == "-h" || v == "-?") {
                 std::cerr << "todo: write help\n";
-                exit(-1);
+                exit(0);
             }
             else {
                 std::cerr << "No idea what argument `" << v << "` means.\n"; exit(-1);
@@ -93,7 +98,7 @@ int main(int argc, char** argv)
         nw.train_images(args.train_environment);
         if (args.NO_LIVE_RENDER) {
             if (args.timeout)
-                nw.train_long((unsigned long long)(args.timeout_s * 1e3), args.quiet);
+                nw.train_long((unsigned long long)(args.timeout_s * 1e9), (unsigned long long)(args.autosave_freq * 1e9), args.workspace, args.quiet);
             else std::cerr << "Please provide a timeout value.";
         }
         else {
@@ -117,6 +122,7 @@ int main(int argc, char** argv)
             r.createView(Renderer::ViewTypeEnum::POINTS_VIEW , .0, .5, .5, 1., 0, false);
             if (!args.quiet)std::cout << "Renderer initialized...\n";
             auto last_example_update = std::chrono::high_resolution_clock::now().operator-=(std::chrono::nanoseconds((long long)5e9));
+            auto last_autosave = std::chrono::high_resolution_clock::now();
             auto example_refresh_s = args.example_refresh_rate;
             r.update();
             auto all_start = std::chrono::high_resolution_clock::now();
@@ -156,15 +162,73 @@ int main(int argc, char** argv)
 
                 if (args.timeout) {
                     auto curr = std::chrono::high_resolution_clock::now();
-                    if ((curr - all_start).count() * 1e-9 > args.timeout_s)
+                    if ((curr - all_start).count() * 1e-9 > args.timeout_s) {
                         break;
+                    }
+                }
+
+                //check if it should autosave
+                if ((current_frame - last_autosave).count() * 1e-9 > args.autosave_freq && args.autosave_freq >= 0) {
+                    //note: making the autosave crash-resistant is not a bad idea, but may be too much work.
+                    //by the way, I mean BSOD-resistant, since that's happened to me twice already, and that would require modifying the loading as well.
+                    if (!args.quiet)std::cout << "(autosave) Saving to: " << args.workspace << "...\n";
+                    nw.save(args.workspace, fileType::CUSTOM_BINARY, true, args.save_train_images);
+                    if (!args.quiet)std::cout << "(autosave) Saved!\n";
+                    last_autosave = std::chrono::high_resolution_clock::now();
                 }
             }
+            if (!args.quiet)std::cout << "Shutting down live render...\n";
         }
         if (!args.quiet)std::cout << "Saving to: " << args.workspace << "...\n";
         nw.save(args.workspace, fileType::CUSTOM_BINARY, true, args.save_train_images);
         if (!args.quiet)std::cout << "Saved!\n";
 
+        if (args.sample_save_path != "") {
+            if (!args.quiet)std::cout << "Saving some samples to: \"" << args.sample_save_path << "\"\n";
+            for (int i = 0; i < dataSet->num_scenes(); ++i) {
+                if (!args.quiet)std::cout << "Saving samples from scene " << i << "\n";
+                for (int j = 0; j < dataSet->scene(i).num_train_images(); ++j) {
+                    if (!args.quiet)std::cout << "Rendering sample " << j+1 << "/" << dataSet->scene(i).num_train_images() << "\n";
+                    const auto& d=dataSet->scene(i).loadOne(j);
+                    auto cam = d->cam();
+                    if (cam->type() == PINHOLE_PROJECTION) {
+                        //maybe something that slightly alters position/angle would be nice as well? to get some non-train sample images as well
+                        std::shared_ptr<PinholeCameraData> full_cam = std::static_pointer_cast<PinholeCameraData>(cam);
+                        auto& randomly_nudge_transform = [](const float4x4& data) {
+                            float4x4 mod;
+                            mod.identity();
+                            //not sure if this is the right order of operations.
+                            if (rand() % 2) {
+                                float4x4 rotation; rotation.identity();
+                                CameraDataItf::transform_from(0.1f * rand() / RAND_MAX, 0.5f * rand() / RAND_MAX, 0);
+                                mod = mod * rotation;
+                            }
+                            if (rand() % 2) {
+                                float4x4 translation; translation.identity();
+                                //NOTE: 5 is kinda random and dependant on the scene's scale
+                                translation[3][0] += 5.0f * rand() / RAND_MAX;
+                                translation[3][1] += 5.0f * rand() / RAND_MAX;
+                                translation[3][2] += 5.0f * rand() / RAND_MAX;
+                                mod = mod * translation;
+                            }
+                            return data * mod;
+                        };
+                        full_cam->transform = randomly_nudge_transform(full_cam->transform);
+                    }
+                    auto tsr = torch::clamp(nw.forward(i, cam) * 255, 0, 255).to(torch::kByte);
+                    if (!args.quiet)std::cout << "Saving sample " << j + 1 << "/" << dataSet->scene(i).num_train_images() << "\n";
+                    auto cpu_tensor = tsr.cpu().contiguous();
+                    auto ptr=cpu_tensor.data_ptr<unsigned char>();
+                    int width = cpu_tensor.sizes()[0];
+                    int height = cpu_tensor.sizes()[1];
+                    //NOTE: this is the ONE use of OpenCV. Maybe try to find a smaller alternative later.
+                    cv::Mat output_mat(cv::Size{ height, width }, CV_MAKETYPE(CV_8U, cpu_tensor.sizes()[2]), ptr);
+                    cv::imwrite(args.sample_save_path+"/sav"+std::to_string(i)+"-"+std::to_string(j)+".png", output_mat);
+                }
+                if (!args.quiet)std::cout << "Samples from scene " << i << " saved\n";
+            }
+            if (!args.quiet)std::cout << "Samples rendered and saved!\n";
+        }
         if (!args.quiet)std::cout << "Shutting down...\n";
         // cudaDeviceReset must be called before exiting in order for profiling and
         // tracing tools such as Nsight and Visual Profiler to show complete traces.

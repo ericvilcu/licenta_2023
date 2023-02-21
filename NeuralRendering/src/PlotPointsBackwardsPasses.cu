@@ -19,6 +19,8 @@ __global__ void backwards_points(const camera_type_partial camera, int ndim, flo
             const float* grad_start = &plot_grad[pixel * (ndim + 1)];
             float* point_grad_start = &(point_grad[ids + 3]);
             for (int i = 0; i < ndim; ++i) {
+                //Do not ask me wy this has to be a minus. I do not know.
+                //point_grad_start[i] -= grad_start[i] * weight_fraction;
                 point_grad_start[i] += grad_start[i] * weight_fraction;
             }
             //todo: point position refinement, somehow.
@@ -36,6 +38,7 @@ __global__ void backwards_environment_v2(const camera_type_partial camera, int n
         if (plot_weights[ids] <= 0) {//weight = 0 would mean no points landed there
             float3 direction = camera.direction_for_pixel(make_int2(idy, idx));
             unsigned int adress = (ndim+1)*pixel_from_cubemap_coords(environment_resolution, cubemap_coords(environment_resolution, direction));
+            //Maybe I should use supersampling? There seems to be somme weird static that rendering at lower resolutions seems to cause.
             for (int i = 0; i < ndim + 1; ++i) {
                 atomicAdd(&environment_grad[adress + i], plot_grad[ids_m + i]);
             }
@@ -52,10 +55,7 @@ cudaError_t backwards_environment_for_camera_v2(const camera_type_partial& camer
     const void* plot_weights, const void* plot_grad) {
     cudaError_t cudaStatus;
     backwards_environment_v2 BEST_2D_KERNEL(camera.h, camera.w) (camera, ndim, (float*)environment_grad, environment_resolution, (float*)plot_weights, (float*)plot_grad);
-    cudaStatus = cudaDeviceSynchronize();
-    STATUS_CHECK();
-    cudaStatus = cudaPeekAtLastError();
-    STATUS_CHECK();
+    AFTER_FUNCTION_CALL_CHECK();
 Error:
     return cudaStatus;
 }
@@ -66,10 +66,7 @@ cudaError_t backwards_points_for_camera_v2(const camera_type_partial& camera, in
     const void* plot, const void* plot_grad, const void* plot_weights) {
     cudaError_t cudaStatus;
     backwards_points BEST_LINEAR_KERNEL(num_points) (camera, ndim, (float*)point_grad, (const float*)point_data, num_points, (const float*)plot, (const float*)plot_grad, (const float*)plot_weights);
-    cudaStatus = cudaDeviceSynchronize();
-    STATUS_CHECK();
-    cudaStatus = cudaPeekAtLastError();
-    STATUS_CHECK();
+    AFTER_FUNCTION_CALL_CHECK();
 Error:
     return cudaStatus;
 }
@@ -81,11 +78,12 @@ cudaError_t backwards_for_camera_v2(const camera_type_partial& camera, int ndim,
     const void* point_data, void* point_grad, int num_points,
     const void* environment, void* environment_grad, int environment_resolution,
     const void* plot, const void* plot_weights, const void* plot_grad){
-    cudaError_t cudaStatus = backwards_environment_for_camera_v2(camera, ndim, environment_grad, environment_resolution, plot_weights, plot_grad);
+    cudaError_t cudaStatus;
+    cudaStatus = backwards_environment_for_camera_v2(camera, ndim, environment_grad, environment_resolution, plot_weights, plot_grad);
     STATUS_CHECK();
     cudaStatus = backwards_points_for_camera_v2(camera, ndim, point_grad, point_data, num_points, plot, plot_grad, plot_weights);
     STATUS_CHECK();
-
+    ENSURE_SYNC();
 Error:
     return cudaStatus;
 }

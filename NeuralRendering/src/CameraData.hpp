@@ -27,6 +27,29 @@ public:
 	virtual std::string debug_log() const { return "unimplemented"; }
 	static std::unique_ptr<CameraDataItf> from_serial(bool text, std::istream& data);
 	static std::unique_ptr<CameraDataItf> from_serial(bool text, const std::string& data);
+	static float4x4 transform_from(float yaw, float pitch, float roll, float3 translation = make_float3(0,0,0)) {
+		float y = yaw; float p = pitch; float r = roll;
+		float4x4 transform; transform.zero();
+		//somewhat taken from http://msl.cs.uiuc.edu/planning/node102.html
+		//with alpha=roll, beta=-yaw, gamma=pitch
+		transform[0][0] = (float)(cos(r) * cos(y));
+		transform[1][0] = (float)(sin(r) * cos(y));
+		transform[2][0] = (float)(sin(y));
+		transform[0][1] = (float)(cos(r) * -sin(y) * sin(p) - sin(r) * cos(p));
+		transform[1][1] = (float)(sin(r) * -sin(y) * sin(p) + cos(r) * cos(p));
+		transform[2][1] = (float)(cos(y) * sin(p));
+		transform[0][2] = (float)(cos(r) * -sin(y) * cos(p) + sin(r) * sin(p));
+		transform[1][2] = (float)(sin(r) * -sin(y) * cos(p) - cos(r) * sin(p));
+		transform[2][2] = (float)(cos(y) * cos(p));
+
+		float4 transformed_dir = make_float4(translation.x, translation.y, translation.z, 0);
+		transformed_dir = transform * transformed_dir;
+		transform[3][0] = transformed_dir.x;
+		transform[3][1] = transformed_dir.y;
+		transform[3][2] = transformed_dir.z;
+
+		return transform;
+	}
 };
 //Template for Partial Classes
 struct PartialCameraDataTemplate {
@@ -131,6 +154,8 @@ struct InteractiveCameraData:CameraDataItf,PartialInteractiveCameraData {
 	float scaleY,fov_x,fov_rad;
 	float yaw, pitch, roll;
 	bool flipped_x;
+	int debug_channels=3;
+	int debug_channel_start=0;
 	float3 translation;
 	InteractiveCameraData() :PartialInteractiveCameraData{},
 		scaleY{ 1 }, fov_x{ 0 }, fov_rad{ 0 },
@@ -165,6 +190,13 @@ struct InteractiveCameraData:CameraDataItf,PartialInteractiveCameraData {
 		flipped_x =! flipped_x;
 	}
 
+	void set_debug_channels(int num) { debug_channels = num; }
+	int get_debug_channels() { return debug_channels; };
+
+	void nudge_debug_channel_start(int num) {
+		debug_channel_start = debug_channel_start+num;//%num_channels would usually go here, but we don't have that information here.
+	}
+
 	void rotate(float2 dir) {
 		yaw = fmodf(yaw + dir.x * (flipped_x ? -1 : 1), PI * 2);
 		pitch = fmodf(pitch + dir.y, PI * 2);
@@ -181,24 +213,7 @@ struct InteractiveCameraData:CameraDataItf,PartialInteractiveCameraData {
 	}
 
 	void recalculateTransform() {
-		float y = yaw; float p = pitch; float r = roll;
-		//somewhat taken from http://msl.cs.uiuc.edu/planning/node102.html
-		//with alpha=roll, beta=-yaw, gamma=pitch
-		transform[0][0] = (float)(cos(r)*cos(y));
-		transform[1][0] = (float)(sin(r)*cos(y));
-		transform[2][0] = (float)(sin(y));
-		transform[0][1] = (float)(cos(r)*-sin(y)*sin(p)-sin(r)*cos(p));
-		transform[1][1] = (float)(sin(r)*-sin(y)*sin(p)+cos(r)*cos(p));
-		transform[2][1] = (float)(cos(y)*sin(p));
-		transform[0][2] = (float)(cos(r)*-sin(y)*cos(p)+sin(r)*sin(p));
-		transform[1][2] = (float)(sin(r)*-sin(y)*cos(p)-cos(r)*sin(p));
-		transform[2][2] = (float)(cos(y)*cos(p));
-		
-		float4 transformed_dir = make_float4(translation.x, translation.y, translation.z, 0);
-		transformed_dir = transform * transformed_dir;
-		transform[3][0] = transformed_dir.x;
-		transform[3][1] = transformed_dir.y;
-		transform[3][2] = transformed_dir.z;
+		transform = transform_from(yaw, pitch, roll, translation);
 		if (flipped_x) {
 			for(int i=0;i<4;++i)
 				transform[i][0] *= -1;

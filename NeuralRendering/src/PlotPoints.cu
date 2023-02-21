@@ -112,7 +112,7 @@ void __global__ drawBackgroundandBundleDepth_v2(float* depth_aux, float* gpu_wei
     int idy = threadIdx.y + blockDim.y * blockIdx.y;
     if (idx < h && idy < w) {
         int ids = idy + idx * w;
-        if (depth_aux[ids] > ndim * camera.far_clip) {
+        if (depth_aux[ids] > camera.far_clip) {
             float* env_data = sample_environment_data_v2(environment_data, resolution,/*direction = */camera.direction_for_pixel(make_int2(idy, idx)), ndim);
             depth_aux[ids] = -1;// camera.far_clip;//+env_data[ndim];//env_data[ndim - 1]
             for (int i = 0; i < ndim + 1; ++i) {
@@ -145,6 +145,7 @@ void __global__ clear(cudaSurfaceObject_t output, float* depth_aux, int h, int w
     }
 }
 
+//NOTE: replaceable with cudaMemSet calls?
 void __global__ clear_v2(float* buffer, float* depth_aux, int h, int w, int ndim, float clear_color, float far_plane = FLT_MAX) {
     int idx = threadIdx.x + blockDim.x * blockIdx.x;
     int idy = threadIdx.y + blockDim.y * blockIdx.y;
@@ -162,41 +163,34 @@ void __global__ clear_v2(float* buffer, float* depth_aux, int h, int w, int ndim
 template <typename CAMERA_TYPE>
 inline cudaError_t plotPointsToFloatBufferCameraType_v2(const CAMERA_TYPE& camera, const int h, const int w, const int ndim,
     const void* points_memory, int num_points, const void* environment_memory, int environment_resolution,
-    float* gpu_weights, float* gpu_weighted_color
+    float* gpu_weights, float* gpu_weighted_color, bool needs_clear = true
 ) {
     cudaError_t cudaStatus = cudaSuccess;
-    clear_v2 BEST_2D_KERNEL(h, w) (gpu_weighted_color, gpu_weights, h, w, ndim, 0);
-    cudaStatus = cudaDeviceSynchronize();
-    STATUS_CHECK();
-    cudaStatus = cudaPeekAtLastError();
-    STATUS_CHECK();
+    if (needs_clear) {
+        cudaStatus = cudaMemset(gpu_weighted_color, 0, sizeof(float) * (ndim + 1ULL) * h * w);//Note: 0x00000000 in float means 0
+        STATUS_CHECK();
+        cudaStatus = cudaMemset(gpu_weights, 0x7F, sizeof(float) * h * w);//Note: 0x7F7F7F7F in float is 3.39615e+38, which is almost FLOAT_MAX (3.402823466e+38), so camera.far_clip should be way below it.
+        STATUS_CHECK();
+    }
 
     //NOTE: we use the weight memory to store the depth temporarily here.
     determineDepth_v2 BEST_LINEAR_KERNEL(num_points) (gpu_weights, h, w, (float*)points_memory, ndim, num_points, camera);
-    cudaStatus = cudaDeviceSynchronize();
-    STATUS_CHECK();
-    cudaStatus = cudaPeekAtLastError();
-    STATUS_CHECK();
+    AFTER_FUNCTION_CALL_CHECK();
+    ENSURE_SYNC();
 
     plotKernel_v2 BEST_LINEAR_KERNEL(num_points) (gpu_weighted_color, gpu_weights, h, w, (float*)points_memory, ndim, num_points, camera);
-    cudaStatus = cudaDeviceSynchronize();
-    STATUS_CHECK();
-    cudaStatus = cudaPeekAtLastError();
-    STATUS_CHECK();
+    AFTER_FUNCTION_CALL_CHECK();
+    ENSURE_SYNC();
 
     if (environment_memory != nullptr) {
         drawBackgroundandBundleDepth_v2 BEST_2D_KERNEL(h, w) (gpu_weights, gpu_weighted_color, h, w, camera, (float*)environment_memory, environment_resolution, ndim);
-        cudaStatus = cudaDeviceSynchronize();
-        STATUS_CHECK();
-        cudaStatus = cudaPeekAtLastError();
-        STATUS_CHECK();
+        AFTER_FUNCTION_CALL_CHECK();
+        ENSURE_SYNC();
     }
     else {
         bundleDepthWithColor_v2 BEST_2D_KERNEL(h, w) (gpu_weighted_color, gpu_weighted_color, gpu_weights, h, w, ndim);
-        cudaStatus = cudaDeviceSynchronize();
-        STATUS_CHECK();
-        cudaStatus = cudaPeekAtLastError();
-        STATUS_CHECK();
+        AFTER_FUNCTION_CALL_CHECK();
+        ENSURE_SYNC();
     }
 
 Error:
@@ -209,20 +203,20 @@ Error:
 cudaError_t plotPointsToFloatBuffer_v2(const CameraDataItf& camera, int h, int w, int ndim,
     const void* points_memory, int num_points,
     const void* environment_memory, int environment_resolution,
-    float* gpu_color, float* gpu_weights) {
+    float* gpu_color, float* gpu_weights, bool needs_clear = true) {
     cudaError_t cudaStatus = cudaSuccess;
 
     switch (camera.type())
     {
     case INTERACTIVE: {
         auto& data = (InteractiveCameraData&)camera;
-        cudaStatus = plotPointsToFloatBufferCameraType_v2(data.prepareForGPU(h, w), h, w, ndim, points_memory, num_points, environment_memory, environment_resolution, gpu_weights, gpu_color);
+        cudaStatus = plotPointsToFloatBufferCameraType_v2(data.prepareForGPU(h, w), h, w, ndim, points_memory, num_points, environment_memory, environment_resolution, gpu_weights, gpu_color, needs_clear);
         STATUS_CHECK();
         break;
     };
     case PINHOLE_PROJECTION: {
         auto& data = (PinholeCameraData&)camera;
-        cudaStatus = plotPointsToFloatBufferCameraType_v2(data.prepareForGPU(h, w), h, w, ndim, points_memory, num_points, environment_memory, environment_resolution, gpu_weights, gpu_color);
+        cudaStatus = plotPointsToFloatBufferCameraType_v2(data.prepareForGPU(h, w), h, w, ndim, points_memory, num_points, environment_memory, environment_resolution, gpu_weights, gpu_color, needs_clear);
         STATUS_CHECK();
         break;
     }
@@ -238,7 +232,8 @@ cudaError_t plotPointsToGPUMemory_v2(const std::shared_ptr<CameraDataItf> camera
     const void* point_memory, int num_points,
     const void* environment_memory, int environment_resolution,
     float** memory_color, bool is_preallocated,
-    float** memory_weights, bool is_weight_preallocated)
+    float** memory_weights, bool is_weight_preallocated,
+    bool needs_clear)
 {
     cudaError_t cudaStatus = cudaSuccess;
     float* gpu_depth_aux = NULL;
@@ -260,7 +255,7 @@ cudaError_t plotPointsToGPUMemory_v2(const std::shared_ptr<CameraDataItf> camera
 
     cudaStatus = plotPointsToFloatBuffer_v2(*camera,h,w,ndim,
         point_memory,num_points,environment_memory, environment_resolution,
-        gpu_weighted_color, gpu_depth_aux
+        gpu_weighted_color, gpu_depth_aux, needs_clear
     );
     STATUS_CHECK();
     if (!is_preallocated) {
@@ -314,10 +309,8 @@ cudaError_t bytesToView(const void*& memory, const int h, const int w, Renderer&
     STATUS_CHECK();
 
     translateKernel BEST_2D_KERNEL(h, w) (surface, (uchar4*)memory, h, w);
-    cudaStatus = cudaDeviceSynchronize();
-    STATUS_CHECK();
-    cudaStatus = cudaPeekAtLastError();
-    STATUS_CHECK();
+    AFTER_FUNCTION_CALL_CHECK();
+    ENSURE_SYNC();
 
 Error:
     cudaStatus = cudaDestroySurfaceObject(surface);
@@ -341,7 +334,7 @@ cudaError_t to_CPU(void*& memory, int length)
     cudaStatus = cudaMemcpy(out, memory,length,cudaMemcpyKind::cudaMemcpyDeviceToHost);
     STATUS_CHECK();
     cudaStatus = cudaFree(memory);
-    STATUS_CHECK();
+    STATUS_CHECK();//I have no clue if this check can even possibly ever fail
     memory = out;
     return cudaSuccess;
 Error:
@@ -349,3 +342,18 @@ Error:
     return cudaStatus;
 }
 
+cudaError_t to_GPU(void*& memory, int length)
+{
+    cudaError_t cudaStatus = cudaError::cudaSuccess;
+    void* out=NULL;
+    cudaStatus = cudaMalloc(&out, length);
+    STATUS_CHECK();
+    cudaStatus = cudaMemcpy(out, memory, length, cudaMemcpyKind::cudaMemcpyHostToDevice);
+    STATUS_CHECK();
+    free(memory);
+    memory = out;
+    return cudaSuccess;
+Error:
+    if (out != NULL)cudaFree(out);
+    return cudaStatus;
+}

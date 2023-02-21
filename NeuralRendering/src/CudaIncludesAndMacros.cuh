@@ -21,12 +21,26 @@
 #endif
 
 
-#ifndef NO_STATUS_CHECK
-#define STATUS_CHECK()do{if(cudaStatus!=cudaSuccess){std::cerr<<"Cuda failure at line:"<<__LINE__<<";File:"<<__FILE__<<";Code:"<<cudaStatus<<" String:"<< cudaGetErrorString ( cudaStatus ) <<"\n";goto Error;}}while(0)
+#ifdef _DEBUG
+//TODO: pass cudaStatus as an argument to the macro to stop it being stupid
+#define MSG_CHECK(MSG) do{if(cudaStatus!=cudaSuccess){std::cerr<<MSG<<"Cuda failure at line:"<<__LINE__<<";File:"<<__FILE__<<";Code:"<<cudaStatus<<" String:"<< cudaGetErrorString ( cudaStatus ) <<"\n";goto Error;}}while(0)
+#define STATUS_CHECK() MSG_CHECK("")
+#define AFTER_FUNCTION_CALL_CHECK() do{cudaStatus = cudaDeviceSynchronize();MSG_CHECK("(at cudaDeviceSynchronize)");cudaStatus = cudaPeekAtLastError();MSG_CHECK("(at cudaPeekAtLastError)");}while(0);
+//unneccesary if AFTER_FUNCTION_CALL_CHECK is used every time as well.
+
+
+//TODO: pass cudaStatus as an argument to the macro to stop it being stupid
+//would this work?
+#define CHECK_ERROR(cudaStatus) ([](cudaError_t status){if(status!=cudaSuccess){std::cerr<<MSG<<"Cuda failure at line:"<<__LINE__<<";File:"<<__FILE__<<";Code:"<<cudaStatus<<" String:"<< cudaGetErrorString ( cudaStatus ) <<"\n";return true;}return false;})(cudaStatus)
+#define ENSURE_SYNC()
 #else // DEBUG
+#define NO_STATUS_CHECK
+#define MSG_CHECK(...)
 #define STATUS_CHECK()
+#define CHECK_ERROR(...) false
+#define AFTER_FUNCTION_CALL_CHECK()
+#define ENSURE_SYNC() cudaDeviceSynchronize()
 #endif
-#define CHK STATUS_CHECK();
 
 //Hacks stolen from:
 //https://stackoverflow.com/questions/6061565/setting-up-visual-studio-intellisense-for-cuda-kernel-calls

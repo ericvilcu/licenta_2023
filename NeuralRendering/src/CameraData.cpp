@@ -15,17 +15,18 @@ std::string InteractiveCameraData::serialized(bool text) const
 std::string PinholeCameraData::serialized(bool text) const
 {
 	if (text) {
-		std::stringstream ss{};
+		std::stringstream ss{ std::stringstream::out };
 		ss << CameraType::PINHOLE_PROJECTION << '\n';
 		write_transform(ss, transform, /*text = */ true);
 		ss << ppy << ' ' << ppx << ' ' << fy << ' ' << fx << ' ' << h << ' ' << w << ' ';
 		return ss.str();
 	}
 	else {
-		std::stringstream ss{ std::ios::binary };
+		std::stringstream ss{ std::stringstream::out|std::ios::binary };
 		writeOneBinary(ss, (int)CameraType::PINHOLE_PROJECTION);
 		write_transform(ss, transform, /*text = */ false);
 		writeOneBinary(ss, ppy);writeOneBinary(ss, ppx);writeOneBinary(ss, fy);writeOneBinary(ss, fx);writeOneBinary(ss, h);writeOneBinary(ss, w);
+		ss.sync();
 		return ss.str();
 	}
 	return "";

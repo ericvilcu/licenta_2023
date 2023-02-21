@@ -33,8 +33,11 @@ void CameraController::processMovements()
 	if (keys[SDL_SCANCODE_Q])rot.z -= 0.02f;
 	if (keys[SDL_SCANCODE_E])rot.z += 0.02f;
 	//todo: make holding down the button not flip back and forth every frame.
-	if (keys[SDL_SCANCODE_F])camera->flip_x();
-	if (keys[SDL_SCANCODE_N])camera->use_neural = !camera->use_neural;
+	if (check_toggle(FLIP, keys[SDL_SCANCODE_F]))camera->flip_x();
+	if (check_toggle(NEURAL, keys[SDL_SCANCODE_N]))camera->use_neural = !camera->use_neural;
+	if (check_toggle(MONO, keys[SDL_SCANCODE_M]))camera->set_debug_channels(4 - camera->get_debug_channels());
+	if (check_toggle(CHANNEL_PLUS, keys[SDL_SCANCODE_KP_PLUS] || keys[SDL_SCANCODE_EQUALS]))camera->nudge_debug_channel_start(1);
+	if (check_toggle(CHANNEL_MINUS, keys[SDL_SCANCODE_KP_MINUS] || keys[SDL_SCANCODE_MINUS]))camera->nudge_debug_channel_start(-1);
 
 	if (keys[SDL_SCANCODE_V]) {
 		dir.x *= 5; dir.y *= 5; dir.z *= 5;

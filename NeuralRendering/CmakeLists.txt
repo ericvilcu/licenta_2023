@@ -1,13 +1,15 @@
 # CMAKE Requirirement may be overkill.
 cmake_minimum_required(VERSION 3.8 FATAL_ERROR)
 # NOTE: Check what your CUDA device compatibility is on https://developer.nvidia.com/cuda-gpus if it does not work. (or the "Autodetected CUDA architecture(s):" of the cmake output)
-# The minimum is currently unknown.
+# The minimum is currently probably 6.0 (due to the use of AtomicAdd) (UNTESTED, because I don't know if/how to use nvcc to test if it compiles).
 
 # NOTE: Do not include slashes at the end of paths.
 # TODO: switch to environment variables or something.
 set(TORCH_PATH_DEBUG "C:\\aux_libs\\libtorch\\debug")
+set(VISION_PATH "C:\\aux_libs\\libtorch\\vision\\build")
 set(TORCH_PATH_RELEASE "C:\\aux_libs\\libtorch\\release")
 set(SDL_PATH "C:\\aux_libs\\SDL\\SDL2-2.24.2")
+set(OpenCV_PATH "C:\\aux_libs\\OpenCV\\build")
 
 #=================================================#
 #  In theory, beyond here nothing should need to  #
@@ -31,6 +33,10 @@ project(NeuralRendering VERSION 0.3 LANGUAGES C CXX CUDA)
 #LIBTORCH
 find_package(Torch PATHS ${TORCH_PATH_DEBUG} NO_DEFAULT_PATH REQUIRED)
 link_libraries("${TORCH_LIBRARIES}")
+
+#TorchVision initialization stuff
+#find_package(torchvision PATHS ${VISION_PATH} NO_DEFAULT_PATH REQUIRED)
+
 #SDL w/ OpenGL
 link_directories(BEFORE "${SDL_PATH}/lib/x64")
 include_directories(BEFORE SYSTEM "${SDL_PATH}/include")
@@ -39,7 +45,11 @@ include_regular_expression(*.h)
 include_regular_expression(*.hpp)
 include_regular_expression(*.cuh)
 
+#OpenCV which is literally only used for saving images and I wish I knew a more lightweight thing
+find_package(OpenCV PATHS ${OpenCV_PATH} REQUIRED)
+link_libraries(${OpenCV_LIBS})
 
+#Using GLOB to get source paths is supposedly not good but I have no idea why so I'm keeping it here.
 file(GLOB MAIN_HEADERS src/*.h src/*.hpp src/*cuh)
 file(GLOB MAIN_SOURCES src/*.c src/*.cpp src/*cu)
 add_executable(main
@@ -50,6 +60,7 @@ add_compile_options(
     $<$<CONFIG:DEBUG>:-Og>
     $<$<CONFIG:RELEASE>:-O3>
 )
+#May switch from 11 to something else sometime.
 target_compile_features(main PUBLIC cxx_std_11)
 set_property(TARGET main 
              PROPERTY CUDA_SEPARABLE_COMPILATION ON)
@@ -65,16 +76,20 @@ if (MSVC)
     set(GL_DLL "C:\\Windows\\System32\\opengl32.dll")
     file(GLOB TORCH_DLLS_DEBUG "${TORCH_PATH_DEBUG}/lib/*.dll")
     file(GLOB TORCH_DLLS_RELEASE "${TORCH_PATH_RELEASE}/lib/*.dll")
+    file(GLOB OpenCV_DLLS "${OpenCV_PATH}/x64/vc16/bin/*.dll")
+    #TODO? OpenCV stuff.
     add_custom_command(TARGET main
                      POST_BUILD
                      COMMAND ${CMAKE_COMMAND} -E copy_if_different
                      #Todo: fix sometime. I've probably already wasted too much time on this and it may be better to just switch them out manually when needed.
                      ${TORCH_DLLS_DEBUG}
+                     #${TORCH_DLLS_RELEASE}
                      #$<$<CONFIG:Debug>:"${TORCH_DLLS_DEBUG}">
                      #$<$<CONFIG:RelWithDebInfo>:"${TORCH_DLLS_RELEASE}">
                      #$<$<CONFIG:Release>:"${TORCH_DLLS_RELEASE}">
                      #$<$<CONFIG:MinSizeRel>:"${TORCH_DLLS_RELEASE}">
                      ${SDL_DLL}
                      ${GL_DLL}
+                     ${OpenCV_DLLS}
                      $<TARGET_FILE_DIR:main>)
 endif (MSVC)
