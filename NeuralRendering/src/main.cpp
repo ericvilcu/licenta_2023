@@ -3,71 +3,54 @@
 #include <thread>
 #include "Renderer.hpp"
 //#include "PlotPoints.cuh"
+#include "cli_args.hpp"
 #include "CameraController.hpp"
 #include "AITrainer.hpp"
 #include <opencv2/opencv.hpp>
 
-struct cli_args {
-    bool quiet = false;
-    std::vector<std::string> datasets_path;
-    bool timeout = false; float timeout_s = 60 * 30;
-    std::string workspace = "";
-    std::string sample_save_path = "";
-    bool NO_LIVE_RENDER = false;
-    bool save_results = false; bool save_train_images = true;
-    bool train = true;
-    bool train_environment = false;
-    float example_refresh_rate = -1;
-    int batch_size = 3;
-    int ndim = 3;
-    int nn_depth = 4;
-    bool new_workspace = false;
-    float autosave_freq = -1;//I somehow lost 3hrs of training so I'm putting this option in.
-
-    cli_args(int argc, char** argv) {
-        if (argc == 1) {
-            std::cerr << "no arguments provided. Use --help to get help."; exit(-1);
-        }
-        bool save_auto = false;
-        bool load_set = false;
-        for (int i = 1; i < argc; ++i) {
-            std::string v = argv[i];
-            //not a great implemenntation...
-            if (v == "--quiet")quiet = true;
-            else if (v == "--timeout") { timeout = true; timeout_s = atof(argv[++i]); }
-            else if (v == "--batch") { batch_size = atoi(argv[++i]); }
-            else if (v == "--train-environment") { train_environment = true; }
-            else if (v == "--autosave") { save_auto = save_results = true; }
-            else if (v == "--dataset") { load_set = true; datasets_path.push_back(argv[++i]);}
-            else if (v == "--workspace") { load_set = true; workspace = argv[++i]; }
-            else if (v == "--no-render") { NO_LIVE_RENDER = true; }
-            else if (v == "--autosave-freq") { autosave_freq = atof(argv[++i]); }
-            else if (v == "--no-train") { train = false; }
-            else if (v == "--extra-channels") { ndim = atoi(argv[++i]) + 3; }
-            else if (v == "--nn-depth") { nn_depth = atoi(argv[++i]); }
-            else if (v == "--make-workspace") { new_workspace = true; }
-            else if (v == "--example-refresh") { example_refresh_rate = atof(argv[++i]); }
-            else if (v == "--save-samples") { sample_save_path = argv[++i]; }
-            else if (v == "--help" || v == "-h" || v == "-?") {
-                std::cerr << "todo: write help\n";
-                exit(0);
-            }
-            else {
-                std::cerr << "No idea what argument `" << v << "` means.\n"; exit(-1);
-            }
-        }
-        if (example_refresh_rate <= 0) {
-            example_refresh_rate = (train ? 2 : 0.3);
-        }
-        return;
+cli_args::cli_args(int argc, char** argv) {
+    if (argc == 1) {
+        std::cerr << "no arguments provided. Use --help to get help."; exit(-1);
     }
-};
-
+    bool load_set = false;
+    for (int i = 1; i < argc; ++i) {
+        std::string v = argv[i];
+        //not a great implemenntation...
+        if (v == "--quiet")quiet = true;
+        else if (v == "--timeout") { timeout = true; timeout_s = atof(argv[++i]); }
+        else if (v == "--batch") { batch_size = atoi(argv[++i]); }
+        else if (v == "--train-environment") { train_environment = true; }
+        else if (v == "--dataset") { load_set = true; datasets_path.push_back(argv[++i]); }
+        else if (v == "--workspace") { load_set = true; workspace = argv[++i]; }
+        else if (v == "--no-render") { NO_LIVE_RENDER = true; }
+        else if (v == "--autosave") { autosave_freq = atof(argv[++i]); }
+        else if (v == "--no-train") { train = false; }
+        else if (v == "--extra-channels") { ndim = atoi(argv[++i]) + 3; }
+        else if (v == "--nn-depth") { nn_depth = atoi(argv[++i]); }
+        else if (v == "--make-workspace") { new_workspace = true; }
+        else if (v == "--example-refresh") { example_refresh_rate = atof(argv[++i]); }
+        else if (v == "--save-samples") { sample_save_path = argv[++i]; }
+        else if (v == "--random-train") { random_train = std::string(argv[++i]) == "true"; }
+        else if (v == "--help" || v == "-h" || v == "-?") {
+            std::cerr << "todo: write help\n";
+            exit(0);
+        }
+        else {
+            std::cerr << "No idea what argument `" << v << "` means.\n"; exit(-1);
+        }
+    }
+    if (example_refresh_rate <= 0) {
+        example_refresh_rate = (train ? 2 : 0.3);
+    }
+    return;
+}
+cli_args* global_args;
 int main(int argc, char** argv)
 {
     //todo: more options (disable GUI, etc.)
     //these would all be read from argv in a theoretical final version.
     cli_args args{ argc,argv };
+    global_args = &args;
     if(!args.quiet)std::cout << "All libraries loaded.\n";
     try {
         if (args.new_workspace) {
@@ -141,11 +124,10 @@ int main(int argc, char** argv)
                 auto current_frame = std::chrono::high_resolution_clock::now();
                 controller.processMovements();
                 if (cam_data->use_neural) {
-                    //todo? get scene from camera data?
-                    nw.plotResultToRenderer(r, dataSet->scene(0), cam_data, Renderer::ViewTypeEnum::MAIN_VIEW);
+                    nw.plotResultToRenderer(r, dataSet->scene(cam_data->selected_scene%dataSet->num_scenes()), cam_data, Renderer::ViewTypeEnum::MAIN_VIEW);
                 }
                 else {
-                    nw.plotToRenderer(r, dataSet->scene(0), cam_data, Renderer::ViewTypeEnum::MAIN_VIEW);
+                    nw.plotToRenderer(r, dataSet->scene(cam_data->selected_scene%dataSet->num_scenes()), cam_data, Renderer::ViewTypeEnum::MAIN_VIEW);
                 }
 
                 if ((current_frame - last_example_update).count() * 1e-9 > example_refresh_s) {
@@ -195,23 +177,25 @@ int main(int argc, char** argv)
                         //maybe something that slightly alters position/angle would be nice as well? to get some non-train sample images as well
                         std::shared_ptr<PinholeCameraData> full_cam = std::static_pointer_cast<PinholeCameraData>(cam);
                         auto& randomly_nudge_transform = [](const float4x4& data) {
+                            auto& signed_rand = []() {return (float)(rand() - (RAND_MAX >> 1)) / (RAND_MAX >> 1); };
                             float4x4 mod;
                             mod.identity();
                             //not sure if this is the right order of operations.
                             if (rand() % 2) {
-                                float4x4 rotation; rotation.identity();
-                                CameraDataItf::transform_from(0.1f * rand() / RAND_MAX, 0.5f * rand() / RAND_MAX, 0);
+                                float4x4 rotation = CameraDataItf::transform_from((2 * PI) * signed_rand(), 0.5f * signed_rand(), 0);
                                 mod = mod * rotation;
                             }
-                            if (rand() % 2) {
+                            if (rand()%2) {
+                                //how exactly does this almost result in infinity and the camera being close to the far plane?
                                 float4x4 translation; translation.identity();
-                                //NOTE: 5 is kinda random and dependant on the scene's scale
-                                translation[3][0] += 5.0f * rand() / RAND_MAX;
-                                translation[3][1] += 5.0f * rand() / RAND_MAX;
-                                translation[3][2] += 5.0f * rand() / RAND_MAX;
+                                //NOTE: .1 is kinda random and dependant on the scene's scale
+                                constexpr float scale = 0.1f;
+                                translation[3][0] += scale * signed_rand();
+                                translation[3][1] += scale * signed_rand();
+                                translation[3][2] += scale * signed_rand();
                                 mod = mod * translation;
                             }
-                            return data * mod;
+                            return mod * data;
                         };
                         full_cam->transform = randomly_nudge_transform(full_cam->transform);
                     }

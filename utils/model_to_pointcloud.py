@@ -1,13 +1,15 @@
 #TL;DR: cast rays perpendicular with x/y/z. Add to a list of points any intersection with any material data you want to keep (in my case albedo/color)
 #Currently only works with .dae
-SCALE=0.1
+SCALE=0.05
 #NOTE: mode uses https://dl.acm.org/doi/10.1145/344779.344936
 MODE_XYZ = "MODE_XYZ"
 MODE_SPLIT = "MODE_SPLIT"
 MODE = MODE_XYZ
 PTH=input("PTH:")
+FORMAT=input("FORMAT?(.bin/.txt)")
 TYPE=".dae"#input("TYPE:")
 OUTPUT = input("OUT:")
+ENV = bool(int(input("env(0/1)?")))
 
 import collada
 import numpy as np
@@ -17,7 +19,7 @@ from itertools import chain
 positions = []
 #Typically, RGB
 other_channels = []
-#https://stackoverflow.com/questions/2049582/how-to-determine-if-a-point-is-in-a-2d-triangle May be incorrect?
+#https://stackoverflow.com/questions/2049582/how-to-determine-if-a-point-is-in-a-2d-triangle
 def crosses (p1,p2,p3):
     return (p1[0] - p3[0]) * (p2[1] - p3[1]) - (p2[0] - p3[0]) * (p1[1] - p3[1])
 def PointInTriangle (pt,v1,v2,v3):
@@ -37,6 +39,7 @@ def round_up(x:float,multiple:float=1):
 def add_triangle(tripos:tuple[tuple[float,float,float],tuple[float,float,float],tuple[float,float,float]],
                  texture=None,tex_coords=None,vertex_colors=None,material_albedo=None,color=(1,1,1)):
     global positions,other_channels
+    if(material_albedo!=None):color = material_albedo
     mins=list(map(min,zip(*tripos)))
     maxs=list(map(max,zip(*tripos)))
     clr_for_pos= lambda x,*a,**arg:color
@@ -86,30 +89,59 @@ def add_triangle(tripos:tuple[tuple[float,float,float],tuple[float,float,float],
 
 if(TYPE == ".dae"):
     data =collada.Collada(PTH)
-    for ngeom,geometry in enumerate(data.geometries):
-        print(f"Processing geometry {ngeom+1}/{len(data.geometries)}")
-        g:collada.geometry.Geometry=geometry
-        for primitive in g.primitives:
-            p:collada.geometry.primitive.Primitive=primitive
-            if(type(p) == collada.geometry.triangleset.TriangleSet):
-                t:collada.geometry.triangleset.TriangleSet=p
-                mat:str=t.material
-                for ind in t.vertex_index:
-                    v0,v1,v2 = ind
-                    p0,p1,p2 = map(tuple,(t.vertex[v0],t.vertex[v1],t.vertex[v2]))
-                    #These are the triangle positions
-                    add_triangle((p0,p1,p2),color=(0.5,0.5,0.5))
-                    pass
-            else:
-                print(str(p) + " could not be transformed because it is not a triangleset.")
+    nodes_to_process:list[tuple[collada.scene.Node,np.ndarray,str]]=[]
+    for i in data.scenes:
+        scene:collada.scene.Scene = i
+        for node in scene.nodes:
+            n:collada.scene.Node=node
+            nodes_to_process.append((n,n.matrix,n.id))
+    while len(nodes_to_process)>0:
+        node, transform, name = nodes_to_process[-1]
+        nodes_to_process.pop()
+        print(f"Processing node {name}/{len(data.geometries)} (in queue:{len(nodes_to_process)})")
+        if("children" in dir(node)):#node has children
+            for ic,child in enumerate(node.children):
+                ct = transform
+                if("matrix" in dir(ct)):ct*=child.matrix
+                cn = name
+                if("name" in dir(ct)):cn=cn+">"+child.name
+                else: cn=cn+">"+str(type(child)).split("'")[1].split('.')[-1]+"(#"+str(ic)+")"
+                nodes_to_process.append((child,ct,cn))
+        
+        if("geometry" in dir(node)):
+            for primitive in node.geometry.primitives:
+                p:collada.geometry.primitive.Primitive=primitive
+                if(type(p) == collada.geometry.triangleset.TriangleSet):
+                    t:collada.geometry.triangleset.TriangleSet=p
+                    mat:str=t.material
+                    for ind in t.vertex_index:
+                        v0,v1,v2 = ind
+                        #                                              a 1 needs to added at the end to form (x,y,z,1) for proper matrix math
+                        p012 = map(lambda x:tuple(np.matmul(np.array([*x,1]),transform)),
+                                       (t.vertex[v0],t.vertex[v1],t.vertex[v2]))
+                        p0,p1,p2 =p012
+                        #These are the triangle positions
+                        add_triangle((p0,p1,p2),color=(0.5,0.5,0.5))
+                else:
+                    print(str(p) + " could not be transformed because it is not a triangleset.")
 
 def writePointCloudBin():
     import struct
-    w=len(positions[0])+len(other_channels[0])
-    with open(OUTPUT,"wb") as f:
+    num_channels = len(other_channels[0])
+    w=len(positions[0])+num_channels
+    
+    with open(OUTPUT+"/points.bin","wb") as f:
         f.write(struct.pack("qq",1,w))
         for p,c in zip(positions,other_channels):
             f.write(struct.pack("f"*w,*chain(p,c)))
+
+    with open(OUTPUT+"/environment.bin","wb") as f:
+        env_res = 1024
+        f.write(struct.pack("qqqqq",4,6,env_res,env_res,num_channels+1))
+        for _face in range(6):
+            for _X in range(env_res):
+                for _Y in range(env_res):
+                    f.write(struct.pack("f"*(num_channels)+"f",[]*num_channels+[-1]))
 
 print(f"Extracted {len(positions)} points")
 if(OUTPUT.endswith(".bin")):

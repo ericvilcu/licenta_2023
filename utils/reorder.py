@@ -11,7 +11,11 @@ else:
     EXT=sys.argv[2]
     START=int(sys.argv[3])
 import os
-l = [int(i[:len(i)-len(EXT)]) for i in os.listdir(DIR) if i.endswith(EXT)]
+try:
+    l = [int(i[:len(i)-len(EXT)]) for i in os.listdir(DIR) if i.endswith(EXT)]
+except:
+    print("Names are not numbers; sorting lexicographically...")
+    l = [str(i[:len(i)-len(EXT)]) for i in os.listdir(DIR) if i.endswith(EXT)]
 l.sort()
 for i,n in enumerate(l):
     os.rename(os.path.join(DIR,str(n)+EXT),os.path.join(DIR,str(START+i)+EXT))

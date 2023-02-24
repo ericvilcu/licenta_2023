@@ -121,7 +121,8 @@ struct dtype4x4 {
         ret[3][1] = a41 * b12 + a42 * b22 + a43 * b32 + a44 * b42;
         ret[3][2] = a41 * b13 + a42 * b23 + a43 * b33 + a44 * b43;
         ret[3][3] = a41 * b14 + a42 * b24 + a43 * b34 + a44 * b44;
-        return ret;
+
+        return ret.transpose();
     }
 
     __hdfi__ dtype4x4 transpose() const {

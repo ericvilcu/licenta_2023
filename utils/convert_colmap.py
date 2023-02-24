@@ -31,7 +31,7 @@ def patchImages(cameras_txt,images_txt,custom_bin_image_folder,overwrite=False,i
     if(overwrite):
         if(img_location==None or len(img_location)<2):
             raise Exception("Please provide an image path if overwrite is true such that the specified files can be found.")
-    img_data = {int(i.strip().split(' ')[0]):i.strip().split(' ') for i in all_lines(images_txt) if (i.strip().endswith('.png') or i.strip().endswith(".jpg")) and not i.startswith("#")}
+    img_data = {int(i.strip().split(' ')[0]):i.strip().split(' ') for i in all_lines(images_txt) if (i.strip().lower().endswith('.png') or i.strip().lower().endswith(".jpg") or i.strip().lower().endswith(".jpeg")) and not i.startswith("#")}
     cam_data ={int(i.strip().split(' ')[0]):i.strip().split(' ') for i in all_lines(cameras_txt) if not i.startswith('#')}
     PN=2# prints this many transforms for debugging purposes.
     for idx in img_data:
@@ -57,27 +57,47 @@ def patchImages(cameras_txt,images_txt,custom_bin_image_folder,overwrite=False,i
         cam = cam_data[cam_id]
         _cam_id = cam[0]
         type = cam[1]
-        assert(type=="PINHOLE" or type=="SIMPLE_PINHOLE")
+        assert(type in ["PINHOLE","SIMPLE_PINHOLE","RADIAL","SIMPLE_RADIAL"])
         if(type == "PINHOLE"):
+            t=0
             w,h,fx,fy,ppx,ppy=map(float,cam[2:])
         elif(type == "SIMPLE_PINHOLE"):
+            t=0
             w,h,fx,ppx,ppy=map(float,cam[2:])
             fy=fx
+        elif(type == "RADIAL"):
+            t=1
+            w,h,fx,ppx,ppy,k1,k2=map(float,cam[2:])
+            fy=fx
+        elif(type == "SIMPLE_RADIAL"):
+            t=1
+            w,h,fx,ppx,ppy,k1=map(float,cam[2:])
+            fy=fx;k2=0
         path_to_patch=os.path.join(custom_bin_image_folder,no_extension(img_name)+end)
         if(not overwrite):
             if os.path.exists(path_to_patch):
                 with open(path_to_patch,"r+b") as f:
-                    f.write(struct.pack("i",0))
-                    f.write(struct.pack("f"*12,*chain(*rotation_mat),*translation))
-                    f.write(struct.pack(4*"f",ppy,ppx,fy,fx))
+                    if(t==0):#Note: changing camera models with patch destroys stuff, but since I'm not really using patch mode anymore, that may be ok.
+                        f.write(struct.pack("i",0))
+                        f.write(struct.pack("f"*12,*chain(*rotation_mat),*translation))
+                        f.write(struct.pack(4*"f",ppy,ppx,fy,fx))
+                    elif(t==1):
+                        f.write(struct.pack("i",1))
+                        f.write(struct.pack("f"*12,*chain(*rotation_mat),*translation))
+                        f.write(struct.pack(6*"f",ppy,ppx,fy,fx,k1,k2))
                     n=h
                     m=w
                     f.write(struct.pack("II",int(n),int(m)))
         else:
             with open(path_to_patch,"wb") as f:
-                f.write(struct.pack("i",0))
-                f.write(struct.pack("f"*12,*chain(*rotation_mat),*translation))
-                f.write(struct.pack(4*"f",ppy,ppx,fy,fx))
+                if(t==0):
+                    f.write(struct.pack("i",0))
+                    f.write(struct.pack("f"*12,*chain(*rotation_mat),*translation))
+                    f.write(struct.pack(4*"f",ppy,ppx,fy,fx))
+                elif(t==1):
+                    f.write(struct.pack("i",1))
+                    f.write(struct.pack("f"*12,*chain(*rotation_mat),*translation))
+                    f.write(struct.pack(6*"f",ppy,ppx,fy,fx,k1,k2))
                 n=h
                 m=w
                 f.write(struct.pack("II",int(n),int(m)))
@@ -94,7 +114,7 @@ def patchImages(cameras_txt,images_txt,custom_bin_image_folder,overwrite=False,i
                 if(done&0xf==0xf):
                     print(done+1,"images done")
         done+=1
-    return r/ncol,g/ncol,b/ncol
+    return (r/ncol,g/ncol,b/ncol) if ncol>0 else (0,0,0)
                     
 def patch_points(points_txt,custom_bin_path, extra_color_channels=0):
     """

@@ -11,10 +11,6 @@
 #include "PlotPoints.cuh"
 #include "PlotterModule.hpp"
 #include "stream_binary_utils.hpp"
-//Not the best solution, but the best I could think of.
-//#include "HeaderThatSupressesWarnings.h"
-//#include <torch/torch.h>
-//#include "HeaderThatReenablesWarnings.h"
 
 inline bool stringEndsWith(const std::string& src, const std::string& ot) {
     for (size_t i = 0; i < ot.size(); i++)
@@ -27,12 +23,16 @@ inline bool stringEndsWith(const std::string& src, const std::string& ot) {
 
 class mainModuleImpl : public torch::nn::Module {
 private:
+    //Here because I want to kdo these differently eventually https://arxiv.org/pdf/2205.05509.pdf
+    typedef torch::nn::Conv2dOptions convModuleOptions;
+    typedef torch::nn::Conv2d convModule;
+    typedef torch::nn::Conv2dImpl convModuleImpl;
     int num_layers;
     int ndim;
     torch::nn::AvgPool2d downsampler = nullptr;
-    std::vector<std::vector<torch::nn::Conv2d>> convolutional_layers_in;
-    std::vector<std::vector<torch::nn::Conv2d>> convolutional_layers_out;
-    torch::nn::Conv2d final_convolutional_layer_out = nullptr;
+    std::vector<std::vector<convModule>> convolutional_layers_in;
+    std::vector<std::vector<convModule>> convolutional_layers_out;
+    convModule final_convolutional_layer_out = nullptr;
     void rebuild_layers(bool delete_prev=true) {
         if(delete_prev)
             for (auto& m : named_modules("",false))
@@ -45,29 +45,29 @@ private:
         torch::IntArrayRef std_kernel_size{ std_padding * 2LL + 1,std_padding * 2LL + 1 };
         for (int i = 0; i < num_layers; ++i) {
             convolutional_layers_in.emplace_back();
-            auto options = torch::nn::Conv2dOptions((ndim+1LL) + last_layer_out_channels, 32, std_kernel_size).padding(std_padding);
-            convolutional_layers_in[i].emplace_back(register_module<torch::nn::Conv2dImpl>(std::string("conv2din_") + std::to_string(i) + "_1", torch::nn::Conv2d(options)));
-            options = torch::nn::Conv2dOptions(32, 16, std_kernel_size).padding(std_padding);
-            convolutional_layers_in[i].emplace_back(register_module<torch::nn::Conv2dImpl>(std::string("conv2din_") + std::to_string(i) + "_2", torch::nn::Conv2d(options)));
-            options = torch::nn::Conv2dOptions(16, 8, std_kernel_size).padding(std_padding);
-            convolutional_layers_in[i].emplace_back(register_module<torch::nn::Conv2dImpl>(std::string("conv2din_") + std::to_string(i) + "_3", torch::nn::Conv2d(options)));
+            auto options = convModuleOptions((ndim+1LL) + last_layer_out_channels, 32, std_kernel_size).padding(std_padding);
+            convolutional_layers_in[i].emplace_back(register_module<convModuleImpl>(std::string("conv2din_") + std::to_string(i) + "_1", convModule(options)));
+            options = convModuleOptions(32, 16, std_kernel_size).padding(std_padding);
+            convolutional_layers_in[i].emplace_back(register_module<convModuleImpl>(std::string("conv2din_") + std::to_string(i) + "_2", convModule(options)));
+            options = convModuleOptions(16, 8, std_kernel_size).padding(std_padding);
+            convolutional_layers_in[i].emplace_back(register_module<convModuleImpl>(std::string("conv2din_") + std::to_string(i) + "_3", convModule(options)));
             last_layer_out_channels = 8;
         }
         last_layer_out_channels = 0;
         for (int i = 0; i < num_layers; ++i) {
             convolutional_layers_out.emplace_back();
-            auto options = torch::nn::Conv2dOptions((ndim + 1LL) + 8LL + last_layer_out_channels, 32, std_kernel_size).padding(std_padding);
-            convolutional_layers_out[i].emplace_back(register_module<torch::nn::Conv2dImpl>(std::string("conv2dout_") + std::to_string(i) + "_1", torch::nn::Conv2d(options)));
-            options = torch::nn::Conv2dOptions(32, 16, std_kernel_size).padding(std_padding);
-            convolutional_layers_out[i].emplace_back(register_module<torch::nn::Conv2dImpl>(std::string("conv2dout_") + std::to_string(i) + "_2", torch::nn::Conv2d(options)));
-            options = torch::nn::Conv2dOptions(16, 8, std_kernel_size).padding(std_padding);
-            convolutional_layers_out[i].emplace_back(register_module<torch::nn::Conv2dImpl>(std::string("conv2dout_") + std::to_string(i) + "_3", torch::nn::Conv2d(options)));
+            auto options = convModuleOptions((ndim + 1LL) + 8LL + last_layer_out_channels, 32, std_kernel_size).padding(std_padding);
+            convolutional_layers_out[i].emplace_back(register_module<convModuleImpl>(std::string("conv2dout_") + std::to_string(i) + "_1", convModule(options)));
+            options = convModuleOptions(32, 16, std_kernel_size).padding(std_padding);
+            convolutional_layers_out[i].emplace_back(register_module<convModuleImpl>(std::string("conv2dout_") + std::to_string(i) + "_2", convModule(options)));
+            options = convModuleOptions(16, 8, std_kernel_size).padding(std_padding);
+            convolutional_layers_out[i].emplace_back(register_module<convModuleImpl>(std::string("conv2dout_") + std::to_string(i) + "_3", convModule(options)));
             last_layer_out_channels = 8;
         }
         
         {
-            auto options = torch::nn::Conv2dOptions(last_layer_out_channels, 4, 1).padding(0);
-            final_convolutional_layer_out = register_module<torch::nn::Conv2dImpl>("final_layer", torch::nn::Conv2d(options));
+            auto options = convModuleOptions(last_layer_out_channels, 4, 1).padding(0);
+            final_convolutional_layer_out = register_module<convModuleImpl>("final_layer", convModule(options));
         }
     }
 public:
@@ -487,7 +487,8 @@ cudaError_t NetworkPointer::plotToRenderer(Renderer& renderer, const Scene& scen
     if (camera->debug_channels == 1) {
         int p = (channels + (camera->debug_channel_start) % channels) % channels;
         tmp_tensor = tmp_tensor.slice(-1, p, p + 1);
-        tmp_tensor = torch::cat({ tmp_tensor,tmp_tensor,tmp_tensor }, -1);
+        tmp_tensor = torch::nn::functional::normalize(torch::cat({ tmp_tensor,tmp_tensor,tmp_tensor }, -1));
+
     } else { // if (camera->debug_channels == 3)
         int pr = (channels + (camera->debug_channel_start) % channels) % channels;
         int pg = (channels + (camera->debug_channel_start + 1) % channels) % channels;

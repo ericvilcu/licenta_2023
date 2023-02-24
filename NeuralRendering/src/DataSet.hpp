@@ -155,18 +155,31 @@ class DataSet {
 		:scenes{},
 		loadsTrainData{ load_train_data } {
 	}
-	void initializeLoaders(bool train_order_rand = true);
+	void initializeLoaders();
+
+	std::vector<img_id> shuffled_for_random_load;
 public:
-	std::pair<img_id, std::shared_ptr<TrainingImage>> loadImageOf(img_id id) {
-		const int scene_id = id.first, image_id = id.second;
-		if (image_id == scene(scene_id).num_train_images() - 1)
-			return std::make_pair(img_id((scene_id + 1LL) % train_scenes, 0), scene(scene_id).loadOne(image_id));
-		return std::make_pair(img_id(scene_id, image_id + 1), scene(scene_id).loadOne(image_id));
-	};
 	std::pair<img_id, std::shared_ptr<TrainingImage>> loadImageOfRand(img_id id) {
 		const int scene_id = id.first, image_id = id.second;
-		const int new_scene_id = abs(rand()) % train_scenes; const int new_image_id = abs(rand()) % scene(new_scene_id).num_train_images();
-		return std::make_pair(img_id(new_scene_id, new_image_id), scene(scene_id).loadOne(image_id));
+		if (shuffled_for_random_load.size() == 0) {
+			for (auto& sc : scenes) {
+				for (int ti = 0; ti < sc.num_train_images(); ++ti)
+					shuffled_for_random_load.emplace_back(img_id(sc.index, ti));
+			}
+			std::random_shuffle(shuffled_for_random_load.begin(), shuffled_for_random_load.end());
+		}
+		img_id next = shuffled_for_random_load[shuffled_for_random_load.size()-1];
+		shuffled_for_random_load.pop_back();
+		return std::make_pair(img_id(next.first, next.second), scene(scene_id).loadOne(image_id));
+	};
+
+	std::pair<img_id, std::shared_ptr<TrainingImage>> loadImageOf(img_id id) {
+		const int scene_id = id.first, image_id = id.second;
+		int next_scene_id = id.first, next_image_id = id.second + 1;
+		while (next_image_id >= scene(next_scene_id).num_train_images()) {
+			next_image_id = 0; next_scene_id = (next_scene_id + 1) % num_scenes();
+		}
+		return std::make_pair(img_id(next_scene_id, next_image_id), scene(scene_id).loadOne(image_id));
 	};
 
 	DataSet(const std::vector<std::string>& paths, bool autoload, bool loadTrainData = true, bool quiet = true)

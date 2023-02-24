@@ -38,6 +38,8 @@ void CameraController::processMovements()
 	if (check_toggle(MONO, keys[SDL_SCANCODE_M]))camera->set_debug_channels(4 - camera->get_debug_channels());
 	if (check_toggle(CHANNEL_PLUS, keys[SDL_SCANCODE_KP_PLUS] || keys[SDL_SCANCODE_EQUALS]))camera->nudge_debug_channel_start(1);
 	if (check_toggle(CHANNEL_MINUS, keys[SDL_SCANCODE_KP_MINUS] || keys[SDL_SCANCODE_MINUS]))camera->nudge_debug_channel_start(-1);
+	if (check_toggle(SCENE_PLUS, keys[SDL_SCANCODE_LEFTBRACKET]))camera->selected_scene -= 1;
+	if (check_toggle(SCENE_MINUS, keys[SDL_SCANCODE_RIGHTBRACKET]))camera->selected_scene += 1;
 
 	if (keys[SDL_SCANCODE_V]) {
 		dir.x *= 5; dir.y *= 5; dir.z *= 5;

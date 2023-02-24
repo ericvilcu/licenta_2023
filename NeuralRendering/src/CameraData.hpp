@@ -13,6 +13,7 @@ typedef int CameraType_t;
 enum CameraType:int{
 	INTERACTIVE = -1,
 	PINHOLE_PROJECTION = 0,
+	RADIAL = 1,
 };
 
 //Interface for main camera data.
@@ -24,7 +25,6 @@ public:
 	virtual int get_height() const = 0;
 	virtual std::unique_ptr<CameraDataItf> scaleTo(int w, int h) const = 0;
 	virtual std::string serialized(bool text) const = 0;
-	virtual std::string debug_log() const { return "unimplemented"; }
 	static std::unique_ptr<CameraDataItf> from_serial(bool text, std::istream& data);
 	static std::unique_ptr<CameraDataItf> from_serial(bool text, const std::string& data);
 	static float4x4 transform_from(float yaw, float pitch, float roll, float3 translation = make_float3(0,0,0)) {
@@ -47,6 +47,7 @@ public:
 		transform[3][0] = transformed_dir.x;
 		transform[3][1] = transformed_dir.y;
 		transform[3][2] = transformed_dir.z;
+		transform[3][3] = 1;
 
 		return transform;
 	}
@@ -154,6 +155,7 @@ struct InteractiveCameraData:CameraDataItf,PartialInteractiveCameraData {
 	float scaleY,fov_x,fov_rad;
 	float yaw, pitch, roll;
 	bool flipped_x;
+	int selected_scene=0;
 	int debug_channels=3;
 	int debug_channel_start=0;
 	float3 translation;
@@ -304,5 +306,128 @@ struct PinholeCameraData :CameraDataItf, PartialPinholeCameraData {
 	PinholeCameraData(const PinholeCameraData& ot) = default;
 	PinholeCameraData(PinholeCameraData&& ot) = default;
 	virtual std::string serialized(bool text) const override;
-	virtual std::string debug_log() const;
+};
+
+//Radial projection camera data.
+//Implementations more or less copied from: https://github.com/colmap/colmap/blob/master/src/base/camera_models.h
+struct PartialRadialCameraData :PartialCameraDataTemplate {
+	float4x4 transform = float4x4();
+	float fx, fy, ppx, ppy, k1, k2;
+	float near_clip, far_clip;
+
+	//These should be implemented for any camera type, or else the inline thing in kernels may break.
+	__hdfi__ float4 mapToWorldCoords(float4 coords) const {
+		return transform * coords;
+	};
+
+#pragma warning(push)
+#pragma warning(disable:4244) //conversion from double to float
+	__hdfi__ void iterativeUndistortion(float* u, float* v) const {
+		// Parameters for Newton iteration using numerical differentiation with
+		// central differences, 100 iterations should be enough even for complex
+		// camera models with higher order terms.
+		const size_t kNumIterations = 100;
+		const double kMaxStepNorm = 1e-10;
+		const double kRelStepSize = 1e-6;
+
+		float4 J;
+		const float2 x0 = make_float2(*u, *v);
+		float2 x = make_float2(*u, *v);
+		float2 dx = make_float2(0, 0);
+		float2 dx_0b = make_float2(0, 0);
+		float2 dx_0f = make_float2(0, 0);
+		float2 dx_1b = make_float2(0, 0);
+		float2 dx_1f = make_float2(0, 0);
+
+		for (size_t i = 0; i < kNumIterations; ++i) {
+			const double step0 = std::max(std::numeric_limits<double>::epsilon(),
+				std::abs(kRelStepSize * x.x));
+			const double step1 = std::max(std::numeric_limits<double>::epsilon(),
+				std::abs(kRelStepSize * x.y));
+			distortion(x.x, x.y, &dx.x, &dx.y);
+			distortion(x.x - step0, x.y, &dx_0b.x, &dx_0b.y);
+			distortion(x.x + step0, x.y, &dx_0f.x, &dx_0f.y);
+			distortion(x.x, x.y - step1, &dx_1b.x, &dx_1b.y);
+			distortion(x.x, x.y + step1, &dx_1f.x, &dx_1f.y);
+			J/*(0, 0)*/.x = 1 + (dx_0f.x - dx_0b.x) / (2 * step0);
+			J/*(0, 1)*/.y = (dx_1f.x - dx_1b.x) / (2 * step1);
+			J/*(1, 0)*/.z = (dx_0f.y - dx_0b.y) / (2 * step0);
+			J/*(1, 1)*/.w = 1 + (dx_1f.y - dx_1b.y) / (2 * step1);
+			float2 xm = make_float2(x.x + dx.x - x0.x, x.y + dx.y - x0.y);
+			float2 step_x = make_float2(xm.x*J.x + xm.y*J.z, xm.x * J.y + xm.y * J.w);//correct?
+			x.x = step_x.x;
+			x.y = step_x.y;
+			if (x.x*x.x + x.y*x.y < kMaxStepNorm) {
+				break;
+			}
+		}
+
+		*u = x.x;
+		*v = x.y;
+	}
+
+	__hdfi__ void distortion(const float u, const float v,
+		float* du, float* dv) const {
+		const float u2 = u * u;
+		const float v2 = v * v;
+		const float r2 = u2 + v2;
+		const float radial = k1 * r2 + k2 * r2 * r2;
+		*du = u * radial;
+		*dv = v * radial;
+	}
+#pragma warning(pop)
+
+	__hdfi__ ScreenCoordsWithDepth mapToScreenCoordsFromWorldCoords(float4 world_coords) const {
+		if (world_coords.z < near_clip || world_coords.z > far_clip) return ScreenCoordsWithDepth::invalid();
+		float inv_depth = 1 / world_coords.z;
+		float nx= world_coords.x* inv_depth;
+		float ny = world_coords.y * inv_depth;
+		float du, dv;
+		distortion(nx, ny, &du, &dv);
+		nx += du;
+		ny += dv;
+
+		int dx = (int)(fx * nx + ppx);
+		int dy = (int)(fy * ny + ppy);
+		if (dx < 0 || dy < 0 || dx >= w || dy >= h)return ScreenCoordsWithDepth::invalid();
+		return ScreenCoordsWithDepth(make_int2(dx, dy), world_coords.z);
+	};
+	__hdfi__ ScreenCoordsWithDepth mapToScreenCoords(float4 coords) const {
+		return mapToScreenCoordsFromWorldCoords(mapToWorldCoords(coords));
+	};
+	__hdfi__ float3 direction_for_pixel(int2 uv) const {
+		float3 direction;
+		direction.z = 1;
+		direction.x = ((float)uv.x - ppx) / fx;
+		direction.y = ((float)uv.y - ppy) / fy;
+
+		iterativeUndistortion(&direction.x, &direction.y);
+
+		return transform.inverted_direction(direction);
+	}
+	PartialRadialCameraData() { fx = fy = k1 = k2 = ppx = ppy = near_clip = far_clip = 0; };
+};
+
+struct RadialCameraData :CameraDataItf, PartialRadialCameraData {
+	virtual CameraType_t type() const { return CameraType::RADIAL; };
+	virtual int get_width() const { return w; };
+	virtual int get_height() const { return h; };
+	virtual std::unique_ptr<CameraDataItf> scaleTo(int w, int h) const {
+		auto scaled = std::make_unique<RadialCameraData>(*this); scaled->w = w; scaled->h = h;
+		float dx = (1.f * w / this->w);
+		float dy = (1.f * h / this->h);
+
+		scaled->fx *= dx; scaled->fy *= dy;
+
+		scaled->ppx *= dx; scaled->ppy *= dy;
+		return scaled;
+	};
+	PartialRadialCameraData prepareForGPU(int height, int width) const {
+		//This is intentional slicing. The only real things sliced off are v-tables and such
+		return *this;
+	}
+	RadialCameraData() {};
+	RadialCameraData(const RadialCameraData& ot) = default;
+	RadialCameraData(RadialCameraData&& ot) = default;
+	virtual std::string serialized(bool text) const override;
 };

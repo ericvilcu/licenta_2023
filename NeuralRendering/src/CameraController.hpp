@@ -11,7 +11,7 @@ class CameraController {
 	enum SWITCHES {
 		FLIP, NEURAL, MONO,
 		CHANNEL_PLUS, CHANNEL_MINUS,
-
+		SCENE_PLUS, SCENE_MINUS,
 		NUM_SWITCHES
 	};
 	bool pressed_last_frame[NUM_SWITCHES];

@@ -1,6 +1,7 @@
 #include <sys/stat.h>
 #include "stream_binary_utils.hpp"
 #include "DataSet.hpp"
+#include "cli_args.hpp"
 
 void Scene::load_points(bool quiet)
 {
@@ -78,11 +79,10 @@ int DataSet::save(const std::string& path, fileType_t mode, bool saveTrainingIma
     return 0;
 }
 
-void DataSet::initializeLoaders(bool random_train_load) {
+void DataSet::initializeLoaders() {
     train_image_provider = std::make_unique<ImageQueue>(5, nullptr);
-    show_image_provider = std::make_unique<ImageQueue>(5, nullptr);
-    //todo: option for load image type for training
-    if(random_train_load)
+    show_image_provider = std::make_unique<ImageQueue>(2, nullptr);
+    if(global_args->random_train)
         trainImageLoader = std::make_unique<ImageLoader>(img_id(0, 0), [this](img_id id) {return loadImageOfRand(id); }, *train_image_provider);
     else
         trainImageLoader = std::make_unique<ImageLoader>(img_id(0, 0), [this](img_id id) {return loadImageOf(id); }, *train_image_provider);
