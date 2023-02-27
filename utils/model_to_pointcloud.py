@@ -13,6 +13,7 @@ ENV = bool(int(input("env(0/1)?")))
 
 import collada
 import numpy as np
+import PIL
 import math
 from itertools import chain
 #TODO: implement lol. I seriously have no idea what file format I should base this on    
@@ -96,16 +97,32 @@ if(TYPE == ".dae"):
         geometry:collada.geometry.BoundGeometry=g
         
         print(f"Processing geometry {idx+1}/{len(geometries)}")
-        transform=geometry.matrix
+        
         for primitive in geometry.primitives():
-            p:collada.geometry.primitive.Primitive=primitive
+            p:collada.geometry.primitive.BoundPrimitive=primitive
             if(type(p) == collada.geometry.triangleset.BoundTriangleSet):
                 triangle_set:collada.geometry.triangleset.BoundTriangleSet=p
-                mat:str=triangle_set.material
-                for triangle in triangle_set:
+                print(triangle_set.material)
+                mat:collada.material.Material=triangle_set.material
+                effect=collada.material.Effect=mat.effect
+                #NOTE: transparent objects can still have reflections and such, which I may want to consider sometime.
+                if(effect.transparency>0.9): continue
+                texture=None
+                
+                if(len(effect.params>0)):
+                    for param in effect.params:
+                        if type(param) == collada.material.Sampler2D:
+                            p:collada.material.Sampler2D=param,
+                            s:collada.material.Surface=p.surface
+                            img:collada.material.CImage=s.image
+                            texture = img.data
+                            break
+                
+                for triangle in triangle_set.shapes():
                     p0,p1,p2 = triangle.vertices
+                    t1,t2,t3 = triangle.texcoords
                     #These are the triangle positions
-                    add_triangle((p0,p1,p2),color=(0.5,0.5,0.5))
+                    add_triangle((p0,p1,p2),color=(0.5,0.5,0.5),tex_coords=(t1,t2,t3),texture=texture)
             else:
                 print(str(p) + " could not be transformed because it is not a triangleset.")
 
