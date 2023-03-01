@@ -1,6 +1,8 @@
 #pragma once
 #include <string>
 #include <vector>
+struct cli_args;
+extern cli_args* global_args;
 struct cli_args {
     bool quiet = false;
     std::vector<std::string> datasets_path;
@@ -19,5 +21,13 @@ struct cli_args {
     float autosave_freq = -1;//I somehow lost 3hrs of training so I'm putting this option in.
     bool random_train = false;
     cli_args(int argc, char** argv);
+private:
+    std::unique_ptr<std::ostream> logger;
+public:
+    template <typename T>
+    inline void log(T data) {
+        if (logger != nullptr) {
+            (*logger) << data << '\n';
+        }
+    }
 };
-extern cli_args* global_args;

@@ -30,7 +30,7 @@ cli_args::cli_args(int argc, char** argv) {
         else if (v == "--make-workspace") { new_workspace = true; }
         else if (v == "--example-refresh") { example_refresh_rate = atof(argv[++i]); }
         else if (v == "--save-samples") { sample_save_path = argv[++i]; }
-        else if (v == "--random-train") { random_train = std::string(argv[++i]) == "true"; }
+        else if (v == "--random-train") { random_train = (std::string(argv[++i]) == "true") || (std::string(argv[++i]) == "1"); }
         else if (v == "--help" || v == "-h" || v == "-?") {
             std::cerr << "todo: write help\n";
             exit(0);
@@ -42,6 +42,7 @@ cli_args::cli_args(int argc, char** argv) {
     if (example_refresh_rate <= 0) {
         example_refresh_rate = (train ? 2 : 0.3);
     }
+    logger = std::make_unique<std::ofstream>(workspace + "/log.txt", std::ios::app | std::ios::out);
     return;
 }
 cli_args* global_args;
@@ -114,7 +115,12 @@ int main(int argc, char** argv)
                     nw.train_frame(100);
                     if (!args.quiet) {
                         auto& status = nw.getTrainingStatus();
-                        if (status.epoch_count != 0)status.print_pretty(std::cout);
+                        if (status.epoch_count != 0) {
+                            std::stringstream ss{ std::ios::app | std::ios::out };
+                            status.print_pretty(ss);
+                            std::cout << ss.str() << '\n';
+                            global_args->log(ss.str());
+                        }
                     }
                 }
                 else {
@@ -199,7 +205,7 @@ int main(int argc, char** argv)
                         };
                         full_cam->transform = randomly_nudge_transform(full_cam->transform);
                     }
-                    auto tsr = torch::clamp(nw.forward(i, cam) * 255, 0, 255).to(torch::kByte);
+                    auto tsr = torch::clamp(nw.size_safe_forward(i, cam) * 255, 0, 255).to(torch::kByte);
                     if (!args.quiet)std::cout << "Saving sample " << j + 1 << "/" << dataSet->scene(i).num_train_images() << "\n";
                     auto cpu_tensor = tsr.cpu().contiguous();
                     auto ptr=cpu_tensor.data_ptr<unsigned char>();

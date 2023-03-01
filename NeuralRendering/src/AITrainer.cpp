@@ -11,11 +11,20 @@
 #include "PlotPoints.cuh"
 #include "PlotterModule.hpp"
 #include "stream_binary_utils.hpp"
+#include "cli_args.hpp"
 
 inline bool stringEndsWith(const std::string& src, const std::string& ot) {
     for (size_t i = 0; i < ot.size(); i++)
     {
         if (ot[i] != src[src.size() - ot.size() + i])
+            return false;
+    }
+    return true;
+}
+inline bool stringStartsWith(const std::string& src, const std::string& ot) {
+    for (size_t i = 0; i < ot.size(); i++)
+    {
+        if (ot[i] != src[i])
             return false;
     }
     return true;
@@ -40,29 +49,32 @@ private:
         convolutional_layers_in.clear();
         convolutional_layers_out.clear();
         int last_layer_out_channels = 0;
+        const int in_layer_out_channels = 32;
+        const int out_layer_out_channels = 32;
         downsampler = register_module("downsampler", torch::nn::AvgPool2d(torch::nn::AvgPool2dOptions({ 2,2 }).stride(2)));
         int std_padding = 1;
-        torch::IntArrayRef std_kernel_size{ std_padding * 2LL + 1,std_padding * 2LL + 1 };
+        torch::ExpandingArray<2> std_kernel_size{ std_padding * 2LL + 1,std_padding * 2LL + 1 };
+        //todo? maybe reduce the number of channels back down? this may be overkill.
         for (int i = 0; i < num_layers; ++i) {
             convolutional_layers_in.emplace_back();
             auto options = convModuleOptions((ndim+1LL) + last_layer_out_channels, 32, std_kernel_size).padding(std_padding);
             convolutional_layers_in[i].emplace_back(register_module<convModuleImpl>(std::string("conv2din_") + std::to_string(i) + "_1", convModule(options)));
-            options = convModuleOptions(32, 16, std_kernel_size).padding(std_padding);
+            options = convModuleOptions(32, 32, std_kernel_size).padding(std_padding);
             convolutional_layers_in[i].emplace_back(register_module<convModuleImpl>(std::string("conv2din_") + std::to_string(i) + "_2", convModule(options)));
-            options = convModuleOptions(16, 8, std_kernel_size).padding(std_padding);
+            options = convModuleOptions(32, in_layer_out_channels, std_kernel_size).padding(std_padding);
             convolutional_layers_in[i].emplace_back(register_module<convModuleImpl>(std::string("conv2din_") + std::to_string(i) + "_3", convModule(options)));
-            last_layer_out_channels = 8;
+            last_layer_out_channels = in_layer_out_channels;
         }
         last_layer_out_channels = 0;
         for (int i = 0; i < num_layers; ++i) {
             convolutional_layers_out.emplace_back();
-            auto options = convModuleOptions((ndim + 1LL) + 8LL + last_layer_out_channels, 32, std_kernel_size).padding(std_padding);
+            auto options = convModuleOptions((ndim + 1LL) + in_layer_out_channels + last_layer_out_channels, 32, std_kernel_size).padding(std_padding);
             convolutional_layers_out[i].emplace_back(register_module<convModuleImpl>(std::string("conv2dout_") + std::to_string(i) + "_1", convModule(options)));
-            options = convModuleOptions(32, 16, std_kernel_size).padding(std_padding);
+            options = convModuleOptions(32, 32, std_kernel_size).padding(std_padding);
             convolutional_layers_out[i].emplace_back(register_module<convModuleImpl>(std::string("conv2dout_") + std::to_string(i) + "_2", convModule(options)));
-            options = convModuleOptions(16, 8, std_kernel_size).padding(std_padding);
+            options = convModuleOptions(32, out_layer_out_channels, std_kernel_size).padding(std_padding);
             convolutional_layers_out[i].emplace_back(register_module<convModuleImpl>(std::string("conv2dout_") + std::to_string(i) + "_3", convModule(options)));
-            last_layer_out_channels = 8;
+            last_layer_out_channels = out_layer_out_channels;
         }
         
         {
@@ -78,9 +90,9 @@ public:
         this->load_from(path);
     }
 
-    mainModuleImpl(int ndim = 3, int layers = 4, bool empty = false, bool set_train = true) {
+    mainModuleImpl(int ndim = 3, int layer_count = 4, bool empty = false, bool set_train = true) {
         this->ndim = ndim;
-        num_layers = layers;
+        num_layers = layer_count;
         train(set_train);
         if (!empty) {
             rebuild_layers(false);
@@ -153,7 +165,7 @@ public:
         model_archive.write("ndim", t_ndim, false);
         model_archive.save_to(file);
     }
-    int layers() {
+    int layer_count() {
         return num_layers;
     }
 };
@@ -168,6 +180,7 @@ public:
     NetworkPointer* parent;
     NetworkPointer::trainingStatus status;
     mainModule mdl;
+    int MAX_NUM_PIXELS=INT_MAX;
     int batch_size;
     int remaining_in_batch;
     float accumulated_loss = 0;
@@ -217,7 +230,6 @@ public:
     /// <param name="h">Height of camera, -1 if not needed</param>
     /// <returns>A vector of images</returns>
     std::vector<torch::Tensor> plot_images_and_halves(int num, int scene_index, std::shared_ptr<CameraDataItf> camera, bool require_grad = true) {
-
         std::vector<torch::Tensor> imgs;
         int w = camera->get_width(), h = camera->get_height();
         std::shared_ptr<CameraDataItf> used_camera = camera->scaleTo(w, h);
@@ -237,7 +249,7 @@ public:
     }
 
     torch::Tensor process(const Scene& scene, std::shared_ptr<CameraDataItf> camera) {
-        return mdl->forward(plot_images_and_halves(mdl->layers(), scene.index, camera));
+        return mdl->forward(plot_images_and_halves(mdl->layer_count(), scene.index, camera));
     }
 
     torch::Tensor plot_one(const Scene& scene, std::shared_ptr<CameraDataItf> camera) {
@@ -251,6 +263,157 @@ public:
         trust = torch::cat({ trust,trust,trust,trust }, -1);
         produced = produced * trust;
         return torch::smooth_l1_loss(produced, target);// / batch_size;
+    }
+
+    //NOTE: cannot be used for training.
+    torch::Tensor size_safe_forward(int scene_id, std::shared_ptr<CameraDataItf> camera) {
+        torch::NoGradGuard guard;
+        int w = camera->get_width(), h = camera->get_height();
+        float total_loss = 0;
+        int MW = w, MH = h;
+        try {
+            std::vector<std::shared_ptr<CameraDataItf>> cameras;
+            std::vector<int4> subsections;
+            std::vector<torch::Tensor> sub_plots;
+            int scaleX=1,scaleY=1;
+            int const_padding = 0;//tbh the normal images could use padding as well, but that sounds like something that should be done on another abstraction layer.
+            if (w * h > MAX_NUM_PIXELS) {
+                //split needed
+                const_padding = 8;
+                //todo? use another method? this is dumb
+                scaleX = scaleY = ceil(sqrt(w * h / MAX_NUM_PIXELS));
+                int w0 = ceil(1.0 * w / scaleX);
+                int h0 = ceil(1.0 * h / scaleY);
+                while ((w0 + const_padding * 2) * (h0 + const_padding * 2) > MAX_NUM_PIXELS) {
+                    if (scaleX <= scaleY)scaleX++;
+                    else scaleY++;
+                    w0 = ceil(1.0 * w / scaleX);
+                    h0 = ceil(1.0 * h / scaleY);
+                }
+                for (int i = 0; i < scaleX; ++i) {
+                    for (int j = 0; j < scaleY; ++j) {
+                        int4 subsection = make_int4(i * w / scaleX, j * h / scaleY, (1 + i) * w / scaleX, (1 + j) * h / scaleY);
+                        subsections.push_back(subsection);
+                        cameras.push_back(camera->subSection(subsection.x - const_padding, subsection.y - const_padding, subsection.z + const_padding, subsection.w + const_padding));
+                    }
+                }
+            }
+            else {
+                //no split neccesarry;
+                cameras.push_back(camera);
+                subsections.push_back(make_int4(0, 0, camera->get_width(), camera->get_height()));
+            }
+            for (int i = 0; i < cameras.size(); ++i) {
+                MW = cameras[i]->get_width();
+                MH = cameras[i]->get_height();
+                std::vector<torch::Tensor> plots = plot_images_and_halves(mdl->layer_count(), scene_id, cameras[i]);
+                auto generated = mdl->forward(plots);
+
+                if (const_padding > 0) {
+                    generated = generated.slice(0, const_padding, -const_padding);
+                    generated = generated.slice(1, const_padding, -const_padding);
+                }
+                if (generated.requires_grad()) {
+                    generated.set_requires_grad(false);
+                }
+                sub_plots.push_back(generated);
+            }
+            torch::Tensor pathed_all;
+            for (int i = 0; i < scaleX; ++i) {
+                torch::Tensor pathed_column;
+                for (int j = 0; j < scaleY; ++j) {
+                    if (pathed_column.defined())pathed_column = torch::cat({ pathed_column,sub_plots[i * scaleY + j] }, 0);
+                    else pathed_column = sub_plots[i * scaleY + j];
+                    sub_plots[i * scaleY + j] = torch::Tensor();
+                }
+                if(pathed_all.defined())pathed_all = torch::cat({ pathed_all,pathed_column }, 1);
+                else pathed_all = pathed_column;
+            }
+            return pathed_all;
+        }
+        catch (torch::OutOfMemoryError error) {
+            MAX_NUM_PIXELS = MW * MH - 1;
+            std::string err{ error.what_without_backtrace() };
+            if (!global_args->quiet) {
+                std::cerr << "Plotting an image of size " << MW * MH << "(" << MW << "x" << MH << ") caused error:\n" << error.what_without_backtrace() << '\n';
+                std::cerr << "Assuming this is a memory error and decreasing max pixel count on an image... (will be applied next training cycle)\n";
+            }
+            return size_safe_forward(scene_id, camera);
+        }
+    }
+
+    float train_image_with_splitting(int scene_id, std::shared_ptr<CameraDataItf> camera, torch::Tensor target) {
+        int w = camera->get_width(), h = camera->get_height();
+        float total_loss=0;
+        int MW = w, MH = h;
+        try {
+            std::vector<std::shared_ptr<CameraDataItf>> cameras;
+            std::vector<int4> subsections;
+            int const_padding = 0;//tbh the normal images could use padding as well, but that sounds like something that should be done on another abstraction layer.
+            if (w * h > MAX_NUM_PIXELS) {
+                //split needed
+                const_padding = 8;
+                //todo? use another method? this is dumb
+                int scale = ceil(sqrt(w * h / MAX_NUM_PIXELS));
+                int w0 = ceil(1.0 * w / scale);
+                int h0 = ceil(1.0 * h / scale);
+                while ((w0 + const_padding * 2) * (h0 + const_padding * 2) > MAX_NUM_PIXELS) {
+                    w0 = ceil(1.0 * w / scale);
+                    h0 = ceil(1.0 * h / scale);
+                    scale++;
+                }
+                for (int i = 0; i < scale; ++i) {
+                    for (int j = 0; j < scale; ++j) {
+                        int4 subsection=make_int4(i*w/scale,j*h/scale,(1+i)*w/scale,(1+j)*h/scale);
+                        subsections.push_back(subsection);
+                        cameras.push_back(camera->subSection(subsection.x - const_padding, subsection.y - const_padding, subsection.z + const_padding, subsection.w + const_padding));
+                    }
+                }
+            }
+            else {
+                //no split neccesarry;
+                cameras.push_back(camera);
+                subsections.push_back(make_int4(0, 0, camera->get_width(), camera->get_height()));
+            }
+            for (int i = 0; i < cameras.size(); ++i) {
+                MW = cameras[i]->get_width();
+                MH = cameras[i]->get_height();
+                std::vector<torch::Tensor> plots = plot_images_and_halves(mdl->layer_count(), scene_id, cameras[i]);
+                auto generated = mdl->forward(plots);
+                auto local_target = target;
+                if (const_padding > 0) {
+                    generated = generated.slice(0, const_padding, -const_padding);
+                    generated = generated.slice(1, const_padding, -const_padding);
+                }
+                if (cameras.size() != 1) {
+                    local_target = local_target.slice(0, subsections[i].y, subsections[i].w);
+                    local_target = local_target.slice(1, subsections[i].x, subsections[i].z);
+                }
+                if (local_target.dtype() == torch::kFloat) {
+                    if (generated.sizes() != local_target.sizes())
+                        assert(false);
+                    auto output = train_diff(generated, local_target);
+                    //std::cerr << img.target.mean().item<float>() << ' ' << generated.mean().item<float>() << '\n';
+                    total_loss += output.item<float>();
+                    output.backward();
+                }
+                else if (local_target.dtype() == torch::kByte) {
+                    auto output = torch::smooth_l1_loss(generated, local_target.to(torch::kFloat, false, true) / 255.0f);
+                    //std::cerr << img.target.mean().item<float>() << ' ' << generated.mean().item<float>() << '\n';
+                    total_loss += output.item<float>();
+                    output.backward();
+                }
+                else assert(false && "unsupported datatype");
+            }
+        } catch (torch::OutOfMemoryError error) {
+            MAX_NUM_PIXELS = MW * MH - 1;
+            std::string err{ error.what_without_backtrace() };
+            if (!global_args->quiet) {
+                std::cerr << "Plotting an image of size " << MW * MH << "(" << MW << "x" << MH << ") caused error:\n" << error.what_without_backtrace() << '\n';
+                std::cerr << "Assuming this is a memory error and decreasing max pixel count on an image... (will be applied next training cycle)\n";
+            }
+        }
+        return total_loss;
     }
 
     void train1() {
@@ -271,26 +434,10 @@ public:
         auto& img = *pair.second;
         auto& scene = pair.first;
         remaining_in_batch = std::max(0, remaining_in_batch - 1);
-        std::vector<torch::Tensor> plots = plot_images_and_halves(mdl->layers(), scene.index, img.cam());
-        auto generated = mdl->forward(plots);
-        if (img.target.dtype() == torch::kFloat) {
-            if (generated.sizes() != img.target.sizes())
-                assert(false);
-            auto output = train_diff(generated, img.target);
-            //std::cerr << img.target.mean().item<float>() << ' ' << generated.mean().item<float>() << '\n';
-            accumulated_loss += output.item<float>();
-            output.backward();
-        }
-        else if (img.target.dtype() == torch::kByte) {
-            auto output = torch::smooth_l1_loss(generated, img.target.to(torch::kFloat, false, true) / 255.0f);
-            //std::cerr << img.target.mean().item<float>() << ' ' << generated.mean().item<float>() << '\n';
-            accumulated_loss += output.item<float>();
-            output.backward();
-        }
-        else assert(false&&"unsupported datatype");
+        accumulated_loss += train_image_with_splitting(scene.index, img.cam(), img.target);
     }
 
-    void train_batch() {
+    /*void train_batch() {
         std::vector<torch::Tensor> plots;
         std::vector<std::vector<torch::Tensor>> individual_plots;
         std::vector<std::pair<Scene&, std::shared_ptr<TrainingImage>>> image_data_pairs;
@@ -300,7 +447,7 @@ public:
             image_data_pairs.emplace_back(pair);
             auto& img = *pair.second;
             auto& scene = pair.first;
-            individual_plots.emplace_back(plot_images_and_halves(mdl->layers(), scene.index, img.cam()));
+            individual_plots.emplace_back(plot_images_and_halves(mdl->layer_count(), scene.index, img.cam()));
         }
         remaining_in_batch = 0;
         for (int i = 0; i < individual_plots[0].size(); ++i) {
@@ -341,7 +488,7 @@ public:
             accumulated_loss = 0;
             return;
         }
-    }
+    }*///did not work that welll anyway
 };
 
 
@@ -382,18 +529,26 @@ void NetworkPointer::train_long(unsigned long long ns, unsigned long long save_n
     while (std::chrono::nanoseconds(end - start).count() <= ns)
     {
         processed_frames++;
-        if (network->batch_size < 3) network->train_batch();//prevents crashing due to insufficient memory to hold all of those images
-        else network->train1();
+        //if (network->batch_size < 3) network->train_batch();//prevents crashing due to insufficient memory to hold all of those images
+        //else 
+            network->train1();
         end = std::chrono::high_resolution_clock::now();
         if (!quiet && std::chrono::nanoseconds(end - last_report).count() >= report_ns) {
-            network->status.print_pretty(std::cout);
+            std::stringstream ss{ std::ios::app | std::ios::out };
+            if (network->status.epoch_count != 0) {
+                network->status.print_pretty(ss);
+                global_args->log(ss.str());
+            }
+
             last_report = end;
             const auto left = std::chrono::nanoseconds(ns) - (end - start);
             const auto h = std::chrono::duration_cast<std::chrono::hours       >(left);
             const auto m = std::chrono::duration_cast<std::chrono::minutes     >(left - h);
             const auto s = std::chrono::duration_cast<std::chrono::seconds     >(left - h - m);
             const auto ms= std::chrono::duration_cast<std::chrono::milliseconds>(left - h - m - s);
-            std::cout << "Time left:" << h.count() << "h " << m.count() << "m " << s.count() << "s " << ms.count() << "ms" << '\n';
+            ss << "Time left:" << h.count() << "h " << m.count() << "m " << s.count() << "s " << ms.count() << "ms" << '\n';
+
+            std::cout << ss.str() << '\n';
             network->status.epoch_count = 0;
             network->status.loss = 0;
         }
@@ -442,7 +597,7 @@ void NetworkPointer::plot_example(Renderer& r, Renderer::ViewType points, Render
     {
         torch::Tensor tmp_tensor;
         void* tmp;
-        tmp_tensor = network->process(scene, img.cam());
+        tmp_tensor = network->size_safe_forward(scene.index, img.cam());
         tmp_tensor = (tmp_tensor * 255).clamp(0, 255).to(caffe2::kByte, false, false).to_dense().contiguous();
         tmp = tmp_tensor.data_ptr<unsigned char>();
         bytesToView(*(const void**)&tmp, tmp_tensor.size(0), tmp_tensor.size(1), r, result);
@@ -487,10 +642,17 @@ cudaError_t NetworkPointer::plotToRenderer(Renderer& renderer, const Scene& scen
     if (camera->debug_channels == 1) {
         int p = (channels + (camera->debug_channel_start) % channels) % channels;
         tmp_tensor = tmp_tensor.slice(-1, p, p + 1);
-        tmp_tensor = torch::nn::functional::normalize(torch::cat({ tmp_tensor,tmp_tensor,tmp_tensor }, -1));
-
+        //std::cerr << mn << ' ' << mx << ' ' << mean << ' ' << dt << '\n';
+        float mn = std::min(tmp_tensor.min().item().toFloat(), -1e-12f);
+        float mx = std::max(tmp_tensor.max().item().toFloat(), 1e-12f);
+        float mean = tmp_tensor.mean().item().toFloat();
+        float dt = std::abs((tmp_tensor - mean).abs().mean().item().toFloat());
+        mn = std::max(mn, (mean - 3 * dt));
+        mx = std::min(mx, (mean + 3 * dt));
+        tmp_tensor = ((tmp_tensor - mn) / (mx - mn));
+        tmp_tensor = torch::cat({ tmp_tensor,tmp_tensor,tmp_tensor }, -1);
     } else { // if (camera->debug_channels == 3)
-        int pr = (channels + (camera->debug_channel_start) % channels) % channels;
+        int pr = (channels + (camera->debug_channel_start    ) % channels) % channels;
         int pg = (channels + (camera->debug_channel_start + 1) % channels) % channels;
         int pb = (channels + (camera->debug_channel_start + 2) % channels) % channels;
         tmp_tensor = torch::cat({ tmp_tensor.slice(-1, pr, pr + 1) ,tmp_tensor.slice(-1, pg, pg + 1),tmp_tensor.slice(-1, pb, pb + 1) }, -1);
@@ -511,6 +673,11 @@ cudaError_t NetworkPointer::plotToRenderer(Renderer& renderer, const Scene& scen
 torch::Tensor NetworkPointer::forward(int sceneId, std::shared_ptr<CameraDataItf> camera)
 {
     return network->process(dataSet->scene(sceneId), camera);
+}
+
+torch::Tensor NetworkPointer::size_safe_forward(int sceneId, std::shared_ptr<CameraDataItf> camera)
+{
+    return network->size_safe_forward(sceneId, camera);
 }
 
 #define MODEL_POSTFIX "/model"

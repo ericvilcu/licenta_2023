@@ -57,6 +57,7 @@ public:
     void train_images(bool train);
     //This may be needed as shared_ptr's destructor may not be visible from any other place.
     torch::Tensor forward(int sceneId, std::shared_ptr<CameraDataItf> camera);
+    torch::Tensor size_safe_forward(int sceneId, std::shared_ptr<CameraDataItf> camera);
     ~NetworkPointer();
 };
 

@@ -13,9 +13,10 @@ ENV = bool(int(input("env(0/1)?")))
 
 import collada
 import numpy as np
-import PIL
+from PIL import Image
 import math
 from itertools import chain
+import os
 #TODO: implement lol. I seriously have no idea what file format I should base this on    
 positions = []
 #Typically, RGB
@@ -35,20 +36,36 @@ def round_down(x:float,multiple:float=1):
     return multiple*float(int(x/multiple))#NOTE: int(:float) rounds down
 def round_up(x:float,multiple:float=1):
     return multiple*float(int(x/multiple))#NOTE: int(:float) rounds down
-
+def iclamp(x,mn,mx):
+    return int(min(mx,max(x,mn)))
 
 def add_triangle(tripos:tuple[tuple[float,float,float],tuple[float,float,float],tuple[float,float,float]],
                  texture=None,tex_coords=None,vertex_colors=None,material_albedo=None,color=(1,1,1)):
     global positions,other_channels
     if(material_albedo!=None):color = material_albedo
+    
     mins=list(map(min,zip(*tripos)))
     maxs=list(map(max,zip(*tripos)))
-    clr_for_pos= lambda x,*a,**arg:color
+    clr_for_pos= lambda x,**arg:color
+    if(texture!=None and tex_coords!=None):
+        before_tex_sample=clr_for_pos
+        def sample_texture(uv):
+            #TODO: min/max filters?
+            return texture[iclamp(uv[0],0,len(texture)-1)][iclamp(uv[1],0,len(texture[0])-1)]
+        def uv_from(position,weights=None,**args):
+            if(weights!=None):return tuple((weights[0]*np.array(tex_coords[0])+weights[1]*np.array(tex_coords[1])+weights[2]*np.array(tex_coords[2]))/sum(weights))
+            #I'm fairly confident this is not correct and distorts the texture.
+            d0=sum(map(lambda x,y:abs(x-y),position,tripos[0]))
+            d1=sum(map(lambda x,y:abs(x-y),position,tripos[1]))
+            d2=sum(map(lambda x,y:abs(x-y),position,tripos[2]))
+            return tuple((d0*np.array(tex_coords[0])+d1*np.array(tex_coords[1])+d2*np.array(tex_coords[2]))/(d0+d1+d2))
+            
+            
+        clr_for_pos=lambda x,**arg: tuple(map(lambda x,y:x*y,sample_texture(uv_from(x,**arg)),before_tex_sample(x,**arg)))
     #TODO: other options?
     if(MODE==MODE_XYZ):
         #Method based on https://dl.acm.org/doi/10.1145/344779.344936
         for (SX,SY,SZ),(iSX,iSY,iSZ) in (((0,1,2),(0,1,2)),((1,2,0),(2,0,1)),((2,0,1),(1,2,0))):
-            #would rounding up be faster?
             pos_ord = \
                        ((tripos[0][SX],tripos[0][SY],tripos[0][SZ]),
                         (tripos[1][SX],tripos[1][SY],tripos[0][SZ]),
@@ -102,27 +119,40 @@ if(TYPE == ".dae"):
             p:collada.geometry.primitive.BoundPrimitive=primitive
             if(type(p) == collada.geometry.triangleset.BoundTriangleSet):
                 triangle_set:collada.geometry.triangleset.BoundTriangleSet=p
-                print(triangle_set.material)
+                #print(triangle_set.material)
                 mat:collada.material.Material=triangle_set.material
                 effect=collada.material.Effect=mat.effect
                 #NOTE: transparent objects can still have reflections and such, which I may want to consider sometime.
-                if(effect.transparency>0.9): continue
+                #if(effect.transparency>0.9): continue
                 texture=None
-                
-                if(len(effect.params>0)):
-                    for param in effect.params:
-                        if type(param) == collada.material.Sampler2D:
-                            p:collada.material.Sampler2D=param,
+                material_color=None
+                if(len(effect.params)>0):
+                    if(effect.ambient!=None):
+                        ambient=effect.ambient
+                        if(type(effect.ambient)==tuple):
+                            material_color = effect.ambient
+                        else:
+                            material_map:collada.material.Map=effect.ambient
+                            p:collada.material.Sampler2D=material_map.sampler
                             s:collada.material.Surface=p.surface
                             img:collada.material.CImage=s.image
-                            texture = img.data
-                            break
-                
+                            try:
+                                true_path= os.path.join(PTH,"..",img.path)
+                                if(os.path.isfile(true_path)):
+                                    with Image.open(true_path) as im:
+                                        texture = im.getdata()
+                                        break
+                                elif(img.pilimage!=None):
+                                    texture = img.pilimage
+                                    break
+                            except:
+                                pass
+                        
                 for triangle in triangle_set.shapes():
                     p0,p1,p2 = triangle.vertices
-                    t1,t2,t3 = triangle.texcoords
+                    t1,t2,t3 = triangle.texcoords[0]
                     #These are the triangle positions
-                    add_triangle((p0,p1,p2),color=(0.5,0.5,0.5),tex_coords=(t1,t2,t3),texture=texture)
+                    add_triangle((p0,p1,p2),color=(0.5,0.5,0.5),tex_coords=(t1,t2,t3),texture=texture,material_albedo=material_color)
             else:
                 print(str(p) + " could not be transformed because it is not a triangleset.")
 

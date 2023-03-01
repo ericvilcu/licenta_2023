@@ -107,6 +107,16 @@ __utilf float4 fromHSV(float4 hsva) {
 	return rgba;
 }
 
+
+__utilf float magnitude(float3 v) {
+	return sqrtf((v.x*v.x)+(v.y*v.y)+(v.z*v.z));
+}
+
+__utilf float3 normalized(float3 v) {
+	float mag = magnitude(v);
+	return make_float3(v.x, v.y, v.z);
+}
+
 __utilf float4 float4_from(uchar4 rgba) {
 	return make_float4(rgba.x * (1 / 255.0f), rgba.y * (1 / 255.0f), rgba.z * (1 / 255.0f), rgba.w * (1 / 255.0f));
 }

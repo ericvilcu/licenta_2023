@@ -6,19 +6,19 @@ class PlotFunction :public torch::autograd::Function<PlotFunction> {
 public:
 
 	static torch::Tensor forward(torch::autograd::AutogradContext* ctx, torch::Tensor points, torch::Tensor environment, std::shared_ptr<CameraDataItf> view) {
-		void* tmp_plot;
-		void* tmp_weights;
 		int ndim = points.size(-1) - 3;
 		//TODO: check if environment is defined
+
+		torch::Tensor ret = torch::zeros({ view->get_height(),view->get_width(), ndim + 1LL }, torch::TensorOptions().dtype(torch::kFloat).device(torch::kCUDA)).contiguous();
+		torch::Tensor weights = torch::zeros({ view->get_height(),view->get_width() }, torch::TensorOptions().dtype(torch::kFloat).device(torch::kCUDA)).contiguous();
+		void* tmp_plot = ret.data_ptr<float>();
+		void* tmp_weights = weights.data_ptr<float>();
 		int environment_resolution = environment.size(1);
-		plotPointsToGPUMemory_v2(view, ndim,
+		plotPointsToGPUMemory_preallocated_v2(view, ndim,
 			points.data_ptr<float>(), points.size(0),
 			environment.data_ptr<float>(), environment_resolution,
-			(float**)&tmp_plot, false, (float**)&tmp_weights, false);
-		torch::Tensor ret = torch::from_blob(tmp_plot, { view->get_height(),view->get_width(), ndim + 1LL }, cudaFree, torch::TensorOptions().dtype(torch::kFloat).device(torch::kCUDA).requires_grad(points.requires_grad() || environment.requires_grad()));
-		torch::Tensor weights = torch::from_blob(tmp_weights, { view->get_height(),view->get_width() }, cudaFree, torch::TensorOptions().dtype(torch::kFloat).device(torch::kCUDA));
+			(float*)tmp_plot, (float*)tmp_weights);
 		//this works but is even more stupid. the serialize trick might have been smarter.
-		//ctx->saved_data["cam_tsr"] = torch::from_blob(new std::shared_ptr<CameraDataItf>(view), { 1 }, [](void* mem) {delete (std::shared_ptr<CameraDataItf>*)mem; }, torch::TensorOptions());
 		ctx->saved_data["cam_bin"] = view->serialized(false);
 		ctx->save_for_backward({ points,environment,ret,weights });
 		return ret;
@@ -31,7 +31,6 @@ public:
 		torch::Tensor ret = saved_stuff[2];
 		torch::Tensor weights = saved_stuff[2];
 		//auto tsr_cam = ctx->saved_data["cam_tsr"].toTensor();
-		//std::shared_ptr<CameraDataItf> camera = *((std::shared_ptr<CameraDataItf>*)tsr_cam.data_ptr<float>());
 		std::shared_ptr<CameraDataItf> camera = CameraDataItf::from_serial(false, ctx->saved_data["cam_bin"].toString()->string());
 		int ndim = points.size(-1) - 3;
 		torch::Tensor gradient_points = torch::zeros(points.sizes(), torch::TensorOptions().device(torch::kCUDA)).contiguous();

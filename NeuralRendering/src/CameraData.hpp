@@ -24,6 +24,7 @@ public:
 	virtual int get_width() const = 0;
 	virtual int get_height() const = 0;
 	virtual std::unique_ptr<CameraDataItf> scaleTo(int w, int h) const = 0;
+	virtual std::unique_ptr<CameraDataItf> subSection(int x1, int y1, int x2, int y2) const = 0;
 	virtual std::string serialized(bool text) const = 0;
 	static std::unique_ptr<CameraDataItf> from_serial(bool text, std::istream& data);
 	static std::unique_ptr<CameraDataItf> from_serial(bool text, const std::string& data);
@@ -55,6 +56,8 @@ public:
 //Template for Partial Classes
 struct PartialCameraDataTemplate {
 	int w; int h;
+	float4x4 transform = float4x4();
+	float near_clip = 0, far_clip = 1e20f;
 	PartialCameraDataTemplate() { h = w = 0; };
 	PartialCameraDataTemplate(int w, int h) :w{ w }, h{ h } {};
 	/*
@@ -64,7 +67,7 @@ struct PartialCameraDataTemplate {
 	__hdfi__ ScreenCoordsWithDepth mapToScreenCoords(float4 in) const{
 		return mapToScreenCoords(mapToWorldCoords());
 	};
-	__hdfi__ float3 DirectionForPixel(int2 uv)
+	__hdfi__ float3 DirectionForPixel(float2 uv)
 	*/
 };
 struct ScreenCoordsWithDepth {
@@ -103,12 +106,10 @@ bool __device__ __forceinline__ mapScreenCooords(float4 coords, int2& out, const
 struct PartialInteractiveCameraData : public PartialCameraDataTemplate {
 public:
 	bool use_neural = false;
-	float4x4 transform = float4x4();
 	float4x4 perspective = float4x4();
-	float near_clip = 0, far_clip = 1e20f;
 	PartialInteractiveCameraData() :PartialCameraDataTemplate{-1, -1} {}
-	PartialInteractiveCameraData(float near_clip, float far_clip, int w, int h) : PartialCameraDataTemplate{ w,h }, transform{}, near_clip{ near_clip }, far_clip{ far_clip }
-		{}
+	PartialInteractiveCameraData(float near_clip, float far_clip, int w, int h) : PartialCameraDataTemplate{ w,h }
+	{ this->near_clip = near_clip; this->far_clip = far_clip; }
 	//These should be implemented for any camera type, or else the inline thing in kernels may break.
 	__hdfi__ float4 mapToWorldCoords(float4 coords) const{
 		return transform * coords;
@@ -127,7 +128,7 @@ public:
 	__hdfi__ ScreenCoordsWithDepth mapToScreenCoords(float4 coords) const{
 		return mapToScreenCoordsFromWorldCoords(mapToWorldCoords(coords));
 	};
-	__hdfi__ float3 direction_for_pixel(int2 uv) const{
+	__hdfi__ float3 direction_for_pixel(float2 uv) const{
 		float3 direction;
 		direction.z = 1;
 		direction.x = -2 * ((float)uv.x / w - 0.5f);
@@ -141,6 +142,7 @@ public:
 	}
 };
 constexpr float PI = 3.14159265358979323851f;
+
 /*
 * Camera data, full struct. Used for freeCam. Just what the standard OpenGL camera is with some extra data to make moving it around easy. The only camera type that adapts to viewport size for now.
 */
@@ -152,6 +154,7 @@ struct InteractiveCameraData:CameraDataItf,PartialInteractiveCameraData {
 		auto scaled=std::make_unique<InteractiveCameraData>(*this); scaled->w = w; scaled->h = h;
 		return scaled;
 	};
+	virtual std::unique_ptr<CameraDataItf> subSection(int x1, int y1, int x2, int y2) const override { throw "InteractiveCameraData::subSection unimplemented"; };
 	float scaleY,fov_x,fov_rad;
 	float yaw, pitch, roll;
 	bool flipped_x;
@@ -255,9 +258,7 @@ struct InteractiveCameraData:CameraDataItf,PartialInteractiveCameraData {
 
 //Pinhole projection camera data.
 struct PartialPinholeCameraData :PartialCameraDataTemplate {
-	float4x4 transform = float4x4();
 	float ppx,ppy,fx,fy;
-	float near_clip, far_clip;
 
 	//These should be implemented for any camera type, or else the inline thing in kernels may break.
 	__hdfi__ float4 mapToWorldCoords(float4 coords) const {
@@ -275,7 +276,7 @@ struct PartialPinholeCameraData :PartialCameraDataTemplate {
 	__hdfi__ ScreenCoordsWithDepth mapToScreenCoords(float4 coords) const {
 		return mapToScreenCoordsFromWorldCoords(mapToWorldCoords(coords));
 	};
-	__hdfi__ float3 direction_for_pixel(int2 uv) const {
+	__hdfi__ float3 direction_for_pixel(float2 uv) const {
 		float3 direction;
 		direction.z = 1;
 		direction.x = (ppx - (float)uv.x) / fx;
@@ -298,6 +299,12 @@ struct PinholeCameraData :CameraDataItf, PartialPinholeCameraData {
 		scaled->ppx*= dx; scaled->ppy*= dy;
 		return scaled;
 	};
+	virtual std::unique_ptr<CameraDataItf> subSection(int x1, int y1, int x2, int y2) const override{
+		auto subsection = std::make_unique<PinholeCameraData>(*this);
+		subsection->w = x2 - x1; subsection->h = y2 - y1;
+		subsection->ppx -= x1; subsection->ppy -= y1;
+		return subsection;
+	};
 	PartialPinholeCameraData prepareForGPU(int height, int width) const {
 		//This is intentional slicing. The only real things sliced off are v-tables and such
 		return *this;
@@ -311,9 +318,7 @@ struct PinholeCameraData :CameraDataItf, PartialPinholeCameraData {
 //Radial projection camera data.
 //Implementations more or less copied from: https://github.com/colmap/colmap/blob/master/src/base/camera_models.h
 struct PartialRadialCameraData :PartialCameraDataTemplate {
-	float4x4 transform = float4x4();
 	float fx, fy, ppx, ppy, k1, k2;
-	float near_clip, far_clip;
 
 	//These should be implemented for any camera type, or else the inline thing in kernels may break.
 	__hdfi__ float4 mapToWorldCoords(float4 coords) const {
@@ -380,26 +385,26 @@ struct PartialRadialCameraData :PartialCameraDataTemplate {
 	__hdfi__ ScreenCoordsWithDepth mapToScreenCoordsFromWorldCoords(float4 world_coords) const {
 		if (world_coords.z < near_clip || world_coords.z > far_clip) return ScreenCoordsWithDepth::invalid();
 		float inv_depth = 1 / world_coords.z;
-		float nx= world_coords.x* inv_depth;
+		float nx = world_coords.x * inv_depth;
 		float ny = world_coords.y * inv_depth;
 		float du, dv;
 		distortion(nx, ny, &du, &dv);
 		nx += du;
 		ny += dv;
 
-		int dx = (int)(fx * nx + ppx);
-		int dy = (int)(fy * ny + ppy);
+		int dx = (int)(-fx * nx + ppx);
+		int dy = (int)(-fy * ny + ppy);
 		if (dx < 0 || dy < 0 || dx >= w || dy >= h)return ScreenCoordsWithDepth::invalid();
 		return ScreenCoordsWithDepth(make_int2(dx, dy), world_coords.z);
 	};
 	__hdfi__ ScreenCoordsWithDepth mapToScreenCoords(float4 coords) const {
 		return mapToScreenCoordsFromWorldCoords(mapToWorldCoords(coords));
 	};
-	__hdfi__ float3 direction_for_pixel(int2 uv) const {
+	__hdfi__ float3 direction_for_pixel(float2 uv) const {
 		float3 direction;
 		direction.z = 1;
-		direction.x = ((float)uv.x - ppx) / fx;
-		direction.y = ((float)uv.y - ppy) / fy;
+		direction.x = -(uv.x - ppx) / fx;
+		direction.y = -(uv.y - ppy) / fy;
 
 		iterativeUndistortion(&direction.x, &direction.y);
 
@@ -421,6 +426,12 @@ struct RadialCameraData :CameraDataItf, PartialRadialCameraData {
 
 		scaled->ppx *= dx; scaled->ppy *= dy;
 		return scaled;
+	};
+	virtual std::unique_ptr<CameraDataItf> subSection(int x1, int y1, int x2, int y2) const override {
+		auto subsection = std::make_unique<RadialCameraData>(*this);
+		subsection->w = x2 - x1; subsection->h = y2 - y1;
+		subsection->ppx -= x1; subsection->ppy -= y1;
+		return subsection;
 	};
 	PartialRadialCameraData prepareForGPU(int height, int width) const {
 		//This is intentional slicing. The only real things sliced off are v-tables and such

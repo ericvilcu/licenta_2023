@@ -20,6 +20,7 @@ set(OpenCV_PATH "C:\\aux_libs\\OpenCV\\build")
 set(PROJECT_VERSION "v0.3")
 set(BUILD_TYPE_DEBUG "Debug")
 set(BUILD_TYPE_RELEASE "Release")
+set(BUILD_TYPE BUILD_TYPE_RELEASE)
 
 # Set cmake options
 set(CMAKE_CXX_STANDARD 11)
@@ -31,7 +32,12 @@ project(NeuralRendering VERSION 0.3 LANGUAGES C CXX CUDA)
 
 #Libraries and additional includes
 #LIBTORCH
-find_package(Torch PATHS ${TORCH_PATH_DEBUG} NO_DEFAULT_PATH REQUIRED)
+if(BUILD_TYPE==BUILD_TYPE_DEBUG)
+    find_package(Torch PATHS ${TORCH_PATH_DEBUG} NO_DEFAULT_PATH REQUIRED)
+else()
+    find_package(Torch PATHS ${TORCH_PATH_RELEASE} NO_DEFAULT_PATH REQUIRED)
+    add_compile_options("-INCLUDE:?warp_size@cuda@at@@YAHXZ")
+endif()
 link_libraries("${TORCH_LIBRARIES}")
 
 #TorchVision initialization stuff
@@ -56,10 +62,6 @@ add_executable(main
     ${MAIN_SOURCES}
     ${MAIN_HEADERS}
 )
-add_compile_options(
-    $<$<CONFIG:DEBUG>:-Og>
-    $<$<CONFIG:RELEASE>:-O3>
-)
 #May switch from 11 to something else sometime.
 target_compile_features(main PUBLIC cxx_std_11)
 set_property(TARGET main 
@@ -74,20 +76,22 @@ set_property(TARGET main
 if (MSVC)
     set(SDL_DLL "${SDL_PATH}\\lib\\x64\\SDL2.dll")
     set(GL_DLL "C:\\Windows\\System32\\opengl32.dll")
-    file(GLOB TORCH_DLLS_DEBUG "${TORCH_PATH_DEBUG}/lib/*.dll")
-    file(GLOB TORCH_DLLS_RELEASE "${TORCH_PATH_RELEASE}/lib/*.dll")
+    #file(GLOB TORCH_DLLS_DEBUG "${TORCH_PATH_DEBUG}/lib/*.dll")
+    #file(GLOB TORCH_DLLS_RELEASE "${TORCH_PATH_RELEASE}/lib/*.dll")
     file(GLOB OpenCV_DLLS "${OpenCV_PATH}/x64/vc16/bin/*.dll")
+    
+    if(BUILD_TYPE==BUILD_TYPE_DEBUG)
+        file(GLOB TORCH_DLLS "${TORCH_PATH_DEBUG}/lib/*.dll")
+    else()
+        file(GLOB TORCH_DLLS "${TORCH_PATH_RELEASE}/lib/*.dll")
+    endif()
     #TODO? OpenCV stuff.
+    message(${TORCH_DLLS})
     add_custom_command(TARGET main
                      POST_BUILD
                      COMMAND ${CMAKE_COMMAND} -E copy_if_different
                      #Todo: fix sometime. I've probably already wasted too much time on this and it may be better to just switch them out manually when needed.
-                     ${TORCH_DLLS_DEBUG}
-                     #${TORCH_DLLS_RELEASE}
-                     #$<$<CONFIG:Debug>:"${TORCH_DLLS_DEBUG}">
-                     #$<$<CONFIG:RelWithDebInfo>:"${TORCH_DLLS_RELEASE}">
-                     #$<$<CONFIG:Release>:"${TORCH_DLLS_RELEASE}">
-                     #$<$<CONFIG:MinSizeRel>:"${TORCH_DLLS_RELEASE}">
+                     ${TORCH_DLLS}
                      ${SDL_DLL}
                      ${GL_DLL}
                      ${OpenCV_DLLS}

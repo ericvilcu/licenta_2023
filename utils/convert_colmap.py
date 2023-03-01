@@ -22,10 +22,12 @@ def all_lines_iter(file:str):
 def all_lines(file:str):
     with open(file) as f:
         return f.readlines()
-def patchImages(cameras_txt,images_txt,custom_bin_image_folder,overwrite=False,img_location=None,end=".bin"):
+def patchImages(cameras_txt,images_txt,custom_bin_image_folder,overwrite=False,img_location=None,end=".bin",autoReorder=False):
     """
         returns an average color to use in defining the environment.
     """
+    if(autoReorder):
+        IDX=0
     r=g=b=ncol=0
     done=0
     if(overwrite):
@@ -73,7 +75,10 @@ def patchImages(cameras_txt,images_txt,custom_bin_image_folder,overwrite=False,i
             t=1
             w,h,fx,ppx,ppy,k1=map(float,cam[2:])
             fy=fx;k2=0
-        path_to_patch=os.path.join(custom_bin_image_folder,no_extension(img_name)+end)
+        if(autoReorder):
+            path_to_patch=os.path.join(custom_bin_image_folder,str(IDX)+end)
+            IDX+=1
+        else: path_to_patch=os.path.join(custom_bin_image_folder,no_extension(img_name)+end)
         if(not overwrite):
             if os.path.exists(path_to_patch):
                 with open(path_to_patch,"r+b") as f:

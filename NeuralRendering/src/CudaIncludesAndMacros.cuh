@@ -14,14 +14,14 @@
 #include <iostream>
 //#include "cudaGLTypedefs.h"
 //#include "cudaGL.h"
-#include "KernelUtils.cuh"
 #include "cuda_texture_types.h"
 #ifdef __INTELLISENSE__
     #include "intellisense_cuda_intrinsics.cuh"
 #endif
 
+#include "KernelUtils.cuh"
 
-#ifdef _DEBUG
+#if defined(_DEBUG) || TRUE
 //TODO: pass cudaStatus as an argument to the macro to stop it being stupid
 #define MSG_CHECK(MSG) do{if(cudaStatus!=cudaSuccess){std::cerr<<MSG<<"Cuda failure at line:"<<__LINE__<<";File:"<<__FILE__<<";Code:"<<cudaStatus<<" String:"<< cudaGetErrorString ( cudaStatus ) <<"\n";goto Error;}}while(0)
 #define STATUS_CHECK() MSG_CHECK("")

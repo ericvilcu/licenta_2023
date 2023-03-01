@@ -113,7 +113,7 @@ void __global__ drawBackgroundandBundleDepth_v2(float* depth_aux, float* gpu_wei
     if (idx < h && idy < w) {
         int ids = idy + idx * w;
         if (depth_aux[ids] > camera.far_clip) {
-            float* env_data = sample_environment_data_v2(environment_data, resolution,/*direction = */camera.direction_for_pixel(make_int2(idy, idx)), ndim);
+            float* env_data = sample_environment_data_v2(environment_data, resolution,/*direction = */camera.direction_for_pixel(make_float2(idy, idx)), ndim);
             depth_aux[ids] = -1;// camera.far_clip;//+env_data[ndim];//env_data[ndim - 1]
             for (int i = 0; i < ndim + 1; ++i) {
                 gpu_weighted[(ndim+1) * ids + i] = env_data[i];
@@ -220,6 +220,12 @@ cudaError_t plotPointsToFloatBuffer_v2(const CameraDataItf& camera, int h, int w
         STATUS_CHECK();
         break;
     }
+    case RADIAL: {
+        auto& data = (RadialCameraData&)camera;
+        cudaStatus = plotPointsToFloatBufferCameraType_v2(data.prepareForGPU(h, w), h, w, ndim, points_memory, num_points, environment_memory, environment_resolution, gpu_weights, gpu_color, needs_clear);
+        STATUS_CHECK();
+        break;
+    };
     default:
         break;
     }
