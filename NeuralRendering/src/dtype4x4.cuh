@@ -12,6 +12,7 @@
 #include "cuda_runtime.h"
 #include "HeaderThatReenablesWarnings.h"
 
+//Essentially, __hdfi__ means: 1. always inline, and 2. can work on CPU (aka host) *and* GPU (aka device)
 #define  __hdfi__ __host__ __device__ __forceinline__
 
 template <typename DTYPE, typename DTYPE4, typename DTYPE3>

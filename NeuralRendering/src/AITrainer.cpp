@@ -32,7 +32,7 @@ inline bool stringStartsWith(const std::string& src, const std::string& ot) {
 
 class mainModuleImpl : public torch::nn::Module {
 private:
-    //Here because I want to kdo these differently eventually https://arxiv.org/pdf/2205.05509.pdf
+    //Here because I want to do these differently eventually https://arxiv.org/pdf/2205.05509.pdf
     typedef torch::nn::Conv2dOptions convModuleOptions;
     typedef torch::nn::Conv2d convModule;
     typedef torch::nn::Conv2dImpl convModuleImpl;
