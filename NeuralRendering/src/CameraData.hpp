@@ -54,22 +54,6 @@ public:
 	}
 };
 //Template for Partial Classes
-struct PartialCameraDataTemplate {
-	int w; int h;
-	float4x4 transform = float4x4();
-	float near_clip = 0, far_clip = 1e20f;
-	PartialCameraDataTemplate() { h = w = 0; };
-	PartialCameraDataTemplate(int w, int h) :w{ w }, h{ h } {};
-	/*
-	To be used in tamplates, implement methods:
-	__hdfi__ float4 mapToWorldCoords(float4 in) const;
-	__hdfi__ ScreenCoordsWithDepth mapToScreenCoordsFromWorldCoords(float4 in) const;
-	__hdfi__ ScreenCoordsWithDepth mapToScreenCoords(float4 in) const{
-		return mapToScreenCoords(mapToWorldCoords());
-	};
-	__hdfi__ float3 DirectionForPixel(float2 uv)
-	*/
-};
 struct ScreenCoordsWithDepth {
 	int2 coords;
 	float depth;
@@ -80,7 +64,61 @@ struct ScreenCoordsWithDepth {
 		this->valid = valid;
 	}
 	static __hdfi__ ScreenCoordsWithDepth invalid() {
-		return ScreenCoordsWithDepth(make_int2(0,0),0.0,false);
+		return ScreenCoordsWithDepth(make_int2(0, 0), 0.0, false);
+	}
+};
+
+template <typename selfclass>
+struct PartialCameraDataTemplate {
+	int w; int h;
+	float4x4 transform = float4x4();
+	float near_clip = 0, far_clip = 1e20f;
+	void implementations_exist() {
+		//makes sure these all required functions exist, yet should be optimized away.
+		me().mapToScreenCoords3(me().direction_for_pixel(make_float2(0, 0)));
+	}
+	PartialCameraDataTemplate() { h = w = 0; implementations_exist(); };
+	PartialCameraDataTemplate(int w, int h) :w{ w }, h{ h } {
+		implementations_exist();
+	};
+	/*
+	To be used in tamplates, implement methods:
+	__hdfi__ float4 mapToWorldCoords(float4 in) const;
+	__hdfi__ ScreenCoordsWithDepth mapToScreenCoordsFromWorldCoords(float4 in) const;
+	__hdfi__ float3 direction_for_pixel(float2 uv)
+	*/
+	__hdfi__ const selfclass& me() const {
+		return (const selfclass&)*this;
+	}
+	__hdfi__ ScreenCoordsWithDepth mapToScreenCoords3(float3 coords) const {
+		return me().mapToScreenCoords(make_float4(coords.x, coords.y, coords.z, 1));
+	}
+	__hdfi__ ScreenCoordsWithDepth mapToScreenCoords(float4 coords) const {
+		return me().mapToScreenCoordsFromWorldCoords(me().mapToWorldCoords(coords));
+	}
+	//tl;dr high numbers=bad, if first is <3 it is somewhat ok, if second < 0.3 it is very ok, if second > 2 it is VERY bad.
+	static std::pair<float,float> check_internal_consistency(const selfclass& cam) {
+		float mx = 0, sm = 0;
+		const int pad=1;
+		for (int i = pad; i < cam.w - pad; ++i) {
+			for (int j = pad; j < cam.h - pad; ++j) {
+				const float4x4& transform = cam.transform;
+				float3 dir = cam.direction_for_pixel(make_float2(i+0.5f, j+0.5f));
+				//std::cerr << dir.x << ' ' << dir.y << ' ' << dir.z << '\n';
+				float depth = 1;
+				float3 ct = transform.translation();
+				//std::cerr << ct.x << ' ' << ct.y << ' ' << ct.z << '\n';
+				ScreenCoordsWithDepth out = cam.mapToScreenCoords(make_float4(dir.x * depth + ct.x, dir.y * depth + ct.y, dir.z * depth + ct.z, 1));
+				float dt = abs(out.coords.x - i) + abs(out.coords.y - j);
+				//std::cerr << dt << ' ' << out.coords.x << ' ' << out.coords.y << ' ' << out.depth << '\n';
+				if (out.valid) {
+					sm += dt;
+					if (dt > mx)mx = dt;
+				}
+				else return std::make_pair(-1.0f,-1.0f);
+			}
+		}
+		return std::make_pair(mx, sm/((cam.w-pad*2)*(cam.h- pad * 2)));
 	}
 };
 /*Here for reference, delete later.
@@ -103,7 +141,7 @@ bool __device__ __forceinline__ mapScreenCooords(float4 coords, int2& out, const
 /*
 * When a struct is sent to a kernel, all of its components are sent as well. This is used to truncate the CameraData struct to only contain the essentials
 */
-struct PartialInteractiveCameraData : public PartialCameraDataTemplate {
+struct PartialInteractiveCameraData : public PartialCameraDataTemplate<PartialInteractiveCameraData> {
 public:
 	bool use_neural = false;
 	float4x4 perspective = float4x4();
@@ -125,17 +163,14 @@ public:
 		if (dx < 0 || dy < 0 || dx >= w || dy >= h)return ScreenCoordsWithDepth::invalid();
 		return ScreenCoordsWithDepth(make_int2(dx,dy),depth);
 	};
-	__hdfi__ ScreenCoordsWithDepth mapToScreenCoords(float4 coords) const{
-		return mapToScreenCoordsFromWorldCoords(mapToWorldCoords(coords));
-	};
 	__hdfi__ float3 direction_for_pixel(float2 uv) const{
 		float3 direction;
 		direction.z = 1;
-		direction.x = -2 * ((float)uv.x / w - 0.5f);
-		direction.y = -2 * ((float)uv.y / h - 0.5f);
+		direction.x = 2 * ((float)uv.x / w - 0.5f);
+		direction.y = 2 * ((float)uv.y / h - 0.5f);
 		//reverse the effects of projection
-		direction.x /= perspective[0][0];
-		direction.y /= perspective[1][1];
+		direction.x /= -perspective[0][0];
+		direction.y /= -perspective[1][1];
 		direction.z /= perspective[2][2];
 		//reverse effects of transform
 		return transform.inverted_direction(direction);
@@ -154,13 +189,14 @@ struct InteractiveCameraData:CameraDataItf,PartialInteractiveCameraData {
 		auto scaled=std::make_unique<InteractiveCameraData>(*this); scaled->w = w; scaled->h = h;
 		return scaled;
 	};
-	virtual std::unique_ptr<CameraDataItf> subSection(int x1, int y1, int x2, int y2) const override { throw "InteractiveCameraData::subSection unimplemented"; };
+	virtual std::unique_ptr<CameraDataItf> subSection(int x1, int y1, int x2, int y2) const override { throw "InteractiveCameraData::subSection is unimplemented"; };
 	float scaleY,fov_x,fov_rad;
 	float yaw, pitch, roll;
 	bool flipped_x;
 	int selected_scene=0;
 	int debug_channels=3;
 	int debug_channel_start=0;
+	bool show_mips = false;
 	float3 translation;
 	InteractiveCameraData() :PartialInteractiveCameraData{},
 		scaleY{ 1 }, fov_x{ 0 }, fov_rad{ 0 },
@@ -257,7 +293,7 @@ struct InteractiveCameraData:CameraDataItf,PartialInteractiveCameraData {
 
 
 //Pinhole projection camera data.
-struct PartialPinholeCameraData :PartialCameraDataTemplate {
+struct PartialPinholeCameraData :PartialCameraDataTemplate<PartialPinholeCameraData> {
 	float ppx,ppy,fx,fy;
 
 	//These should be implemented for any camera type, or else the inline thing in kernels may break.
@@ -268,19 +304,16 @@ struct PartialPinholeCameraData :PartialCameraDataTemplate {
 		if (world_coords.z < near_clip || world_coords.z > far_clip) return ScreenCoordsWithDepth::invalid();
 		float inv_depth = 1/ world_coords.z;
 
-		int dx = (int)(ppx - fx * world_coords.x * inv_depth);
-		int dy = (int)(ppy - fy * world_coords.y * inv_depth);
+		int dx = (int)(-fx * world_coords.x * inv_depth + ppx);
+		int dy = (int)(-fy * world_coords.y * inv_depth + ppy);
 		if (dx < 0 || dy < 0 || dx >= w || dy >= h)return ScreenCoordsWithDepth::invalid();
 		return ScreenCoordsWithDepth(make_int2(dx, dy), world_coords.z);
-	};
-	__hdfi__ ScreenCoordsWithDepth mapToScreenCoords(float4 coords) const {
-		return mapToScreenCoordsFromWorldCoords(mapToWorldCoords(coords));
 	};
 	__hdfi__ float3 direction_for_pixel(float2 uv) const {
 		float3 direction;
 		direction.z = 1;
-		direction.x = (ppx - (float)uv.x) / fx;
-		direction.y = (ppy - (float)uv.y) / fy;
+		direction.x = -(uv.x - ppx) / fx;
+		direction.y = -(uv.y - ppy) / fy;
 		return transform.inverted_direction(direction);
 	}
 	PartialPinholeCameraData() { ppx = ppy = fx = fy = near_clip = far_clip = 0; };
@@ -317,7 +350,7 @@ struct PinholeCameraData :CameraDataItf, PartialPinholeCameraData {
 
 //Radial projection camera data.
 //Implementations more or less copied from: https://github.com/colmap/colmap/blob/master/src/base/camera_models.h
-struct PartialRadialCameraData :PartialCameraDataTemplate {
+struct PartialRadialCameraData :PartialCameraDataTemplate<PartialRadialCameraData> {
 	float fx, fy, ppx, ppy, k1, k2;
 
 	//These should be implemented for any camera type, or else the inline thing in kernels may break.

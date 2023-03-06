@@ -159,16 +159,25 @@ class DataSet {
 
 	std::vector<img_id> shuffled_for_random_load;
 public:
+	//todo? extract to another file/class?
+	img_id initLoadImageOfRand() {
+		for (auto& sc : scenes) {
+			for (int ti = 0; ti < sc.num_train_images(); ++ti)
+				shuffled_for_random_load.emplace_back(img_id(sc.index, ti));
+		}
+		std::random_shuffle(shuffled_for_random_load.begin(), shuffled_for_random_load.end());
+		img_id next = shuffled_for_random_load[shuffled_for_random_load.size() - 1];
+		shuffled_for_random_load.pop_back();
+		return next;
+	}
 	std::pair<img_id, std::shared_ptr<TrainingImage>> loadImageOfRand(img_id id) {
 		const int scene_id = id.first, image_id = id.second;
+		img_id next;
 		if (shuffled_for_random_load.size() == 0) {
-			for (auto& sc : scenes) {
-				for (int ti = 0; ti < sc.num_train_images(); ++ti)
-					shuffled_for_random_load.emplace_back(img_id(sc.index, ti));
-			}
-			std::random_shuffle(shuffled_for_random_load.begin(), shuffled_for_random_load.end());
+			next = initLoadImageOfRand();
 		}
-		img_id next = shuffled_for_random_load[shuffled_for_random_load.size()-1];
+		else
+			next = shuffled_for_random_load[shuffled_for_random_load.size() - 1];
 		shuffled_for_random_load.pop_back();
 		return std::make_pair(img_id(next.first, next.second), scene(scene_id).loadOne(image_id));
 	};

@@ -24,8 +24,9 @@ __global__ void backwards_points(const camera_type_partial camera, int ndim, flo
             for (int i = 0; i < ndim; ++i) {
                 point_color_grad_start[i] += grad_start[i] * weight_fraction;
             }
-            //todo: point position refinement, somehow. figure out how they use "constellations" in https://arxiv.org/pdf/2110.06635.pdf
-            if(true)//todo: implement fully
+            //estimate for point position refinement, based on: https://arxiv.org/pdf/2110.06635.pdf
+            //Note: the edges of the image are iffy, so I exclude them.
+            if(true && d.coords.x>0 && d.coords.y>0 && d.coords.x<camera.w-1 && d.coords.y<camera.h-1)//todo: verify the implementation at the camera level.
             {
                 auto compute_position_grad = [&](int pixel) -> float
                 {
@@ -47,7 +48,7 @@ __global__ void backwards_points(const camera_type_partial camera, int ndim, flo
                             d += new_inv_weight * (this_point_data[3 + i] - pixel_weight * pixel_data[i]) * pixel_grad[i];
                         }
                     } else {
-                        //does nothing, as it would be far behind other points.
+                        //does nothing, as it would be far behind other points, not contribuiting.
                         d = 0;
                     }
                     return d;
@@ -58,10 +59,10 @@ __global__ void backwards_points(const camera_type_partial camera, int ndim, flo
                 int pixelY1 = d.coords.x + (d.coords.y+1) * camera.w;
                 float grad_X = 0.5f * (-compute_position_grad(pixelX0) + compute_position_grad(pixelX1));
                 float grad_Y = 0.5f * (-compute_position_grad(pixelY0) + compute_position_grad(pixelY1));
-                float3 pixel_direction = normalized(camera.direction_for_pixel(make_float2(d.coords.x, d.coords.y)));
-                float3 wanted_direction = normalized(camera.direction_for_pixel(make_float2(d.coords.x + grad_X, d.coords.y + grad_Y)));
-                float3 gradient_camera_space = make_float3((pixel_direction.x - wanted_direction.x) * depth, (pixel_direction.y - wanted_direction.y) * depth, (pixel_direction.z - wanted_direction.z) * depth);
-                float3 gradient_world_space = camera.transform.inverted_direction(gradient_camera_space);
+                float3 pixel_direction = normalized(camera.direction_for_pixel(make_float2(d.coords.x+0.5f, d.coords.y+0.5f)));
+                float3 wanted_direction = normalized(camera.direction_for_pixel(make_float2(d.coords.x + grad_X+0.5f, d.coords.y + grad_Y+0.5f)));
+                float3 gradient_camera_space = make_float3((pixel_direction.x - wanted_direction.x) * -depth, (pixel_direction.y - wanted_direction.y) * -depth, (pixel_direction.z - wanted_direction.z) * -depth);
+                float3 gradient_world_space = gradient_camera_space;
                 point_grad_start[0] += gradient_camera_space.x;
                 point_grad_start[1] += gradient_camera_space.y;
                 point_grad_start[2] += gradient_camera_space.z;
@@ -78,7 +79,7 @@ __global__ void backwards_environment_v2(const camera_type_partial camera, int n
         int ids = (idy + idx * camera.w);
         int ids_m = (idy + idx * camera.w) * (ndim + 1);
         if (plot_weights[ids] <= 0) {//weight = 0 would mean no points landed there
-            float3 direction = camera.direction_for_pixel(make_float2(idy, idx));
+            float3 direction = camera.direction_for_pixel(make_float2(idy+0.5f, idx+0.5f));
             unsigned int adress = (ndim+1)*pixel_from_cubemap_coords(environment_resolution, cubemap_coords(environment_resolution, direction));
             //Maybe I should use supersampling? There seems to be somme weird static that rendering at lower resolutions seems to cause.
             for (int i = 0; i < ndim + 1; ++i) {

@@ -8,11 +8,11 @@ static_assert(false, "only 6.0 or greater currently supported. (due to AtomicAdd
 #endif
 #endif // __CUDA_ARCH__
 
-void __global__ translateKernel(cudaSurfaceObject_t output, const uchar4* colors, const int h, const int w) {
+void __global__ translateKernel(cudaSurfaceObject_t output, const uchar4* colors, const int h, const int w, const int hd = 0, const int wd = 0) {
     int idx = threadIdx.x + blockDim.x * blockIdx.x;
     int idy = threadIdx.y + blockDim.y * blockIdx.y;
     if (idx < h && idy < w) {
-        surf2Dwrite(colors[idy + idx * w], output, idy * sizeof(uchar4), idx, cudaBoundaryModeClamp);
+        surf2Dwrite(colors[idy+wd + (hd+idx) * w], output, idy * sizeof(uchar4), idx, cudaBoundaryModeClamp);
     }
 }
 
@@ -113,7 +113,7 @@ void __global__ drawBackgroundandBundleDepth_v2(float* depth_aux, float* gpu_wei
     if (idx < h && idy < w) {
         int ids = idy + idx * w;
         if (depth_aux[ids] > camera.far_clip) {
-            float* env_data = sample_environment_data_v2(environment_data, resolution,/*direction = */camera.direction_for_pixel(make_float2(idy, idx)), ndim);
+            float* env_data = sample_environment_data_v2(environment_data, resolution,/*direction = */camera.direction_for_pixel(make_float2(idy+0.5f, idx+0.5f)), ndim);
             depth_aux[ids] = -1;// camera.far_clip;//+env_data[ndim];//env_data[ndim - 1]
             for (int i = 0; i < ndim + 1; ++i) {
                 gpu_weighted[(ndim+1) * ids + i] = env_data[i];
@@ -176,21 +176,16 @@ inline cudaError_t plotPointsToFloatBufferCameraType_v2(const CAMERA_TYPE& camer
     //NOTE: we use the weight memory to store the depth temporarily here.
     determineDepth_v2 BEST_LINEAR_KERNEL(num_points) (gpu_weights, h, w, (float*)points_memory, ndim, num_points, camera);
     AFTER_FUNCTION_CALL_CHECK();
-    ENSURE_SYNC();
-
     plotKernel_v2 BEST_LINEAR_KERNEL(num_points) (gpu_weighted_color, gpu_weights, h, w, (float*)points_memory, ndim, num_points, camera);
     AFTER_FUNCTION_CALL_CHECK();
-    ENSURE_SYNC();
 
     if (environment_memory != nullptr) {
         drawBackgroundandBundleDepth_v2 BEST_2D_KERNEL(h, w) (gpu_weights, gpu_weighted_color, h, w, camera, (float*)environment_memory, environment_resolution, ndim);
         AFTER_FUNCTION_CALL_CHECK();
-        ENSURE_SYNC();
     }
     else {
         bundleDepthWithColor_v2 BEST_2D_KERNEL(h, w) (gpu_weighted_color, gpu_weighted_color, gpu_weights, h, w, ndim);
         AFTER_FUNCTION_CALL_CHECK();
-        ENSURE_SYNC();
     }
 
 Error:
@@ -276,6 +271,7 @@ cudaError_t plotPointsToGPUMemory_v2(const std::shared_ptr<CameraDataItf> camera
     }
 
     STATUS_CHECK();
+    ENSURE_SYNC();//Note: all commands are essentially given to CUDA stream 1, which means that we only need to check if they're done here.
     //That's it.
     return cudaStatus;
 
@@ -284,6 +280,48 @@ Error:
         cudaFree(gpu_weighted_color);
     if (!is_weight_preallocated && gpu_depth_aux != NULL)
         cudaFree(gpu_depth_aux);
+    return cudaStatus;
+}
+
+
+cudaError_t bytesToSubView(const void*& memory, const int sh, const int sw, const int h, const int w, Renderer& renderer, Renderer::ViewType viewType)
+{
+    cudaError_t cudaStatus = cudaSuccess;
+    cudaGraphicsResource_t vbo_res;
+    auto& view = renderer.getView(viewType);
+    int wv = view.width;
+    int hv = view.height;
+    if (h != hv || w != wv) {
+        view.width = w;
+        view.height = h;
+        view.needs_update = true;
+    }
+    cudaArray* array = NULL;
+
+    cudaStatus = cudaGraphicsGLRegisterImage(&vbo_res, view.textureId, GL_TEXTURE_2D, cudaGraphicsRegisterFlagsWriteDiscard);
+    STATUS_CHECK();
+    cudaStatus = cudaGraphicsMapResources(1, &vbo_res, 0);
+    STATUS_CHECK();
+    cudaStatus = cudaGraphicsSubResourceGetMappedArray(&array, vbo_res, 0, 0);
+    STATUS_CHECK();
+    cudaResourceDesc viewCudaArrayResourceDesc;
+    viewCudaArrayResourceDesc.resType = cudaResourceTypeArray;
+    viewCudaArrayResourceDesc.res.array.array = array;
+    cudaSurfaceObject_t surface;
+    cudaStatus = cudaCreateSurfaceObject(&surface, &viewCudaArrayResourceDesc);
+    STATUS_CHECK();
+
+    translateKernel BEST_2D_KERNEL(h, w) (surface, (uchar4*)memory, h, w, sh, sw);
+    AFTER_FUNCTION_CALL_CHECK();
+    ENSURE_SYNC();
+
+Error:
+    cudaStatus = cudaDestroySurfaceObject(surface);
+    STATUS_CHECK();
+    cudaStatus = cudaGraphicsUnmapResources(1, &vbo_res, 0);
+    STATUS_CHECK();
+    cudaStatus = cudaGraphicsUnregisterResource(vbo_res);
+    STATUS_CHECK();
     return cudaStatus;
 }
 

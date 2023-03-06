@@ -40,7 +40,7 @@ public:
      * 
      * @param r renderer to place the data in.
      */
-    void plot_example(Renderer& r, Renderer::ViewType points, Renderer::ViewType target, Renderer::ViewType result);
+    void plot_example(Renderer& r, Renderer::ViewType points, Renderer::ViewType target, Renderer::ViewType result, std::shared_ptr<InteractiveCameraData> cd);
     /**
     * @brief Plots to renderer a scene from the perspective of a camera, using the neural renderer.
     */

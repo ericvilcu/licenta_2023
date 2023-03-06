@@ -22,6 +22,7 @@ inline bool stringEndsWith(const std::string& src, const std::string& ot) {
     return true;
 }
 inline bool stringStartsWith(const std::string& src, const std::string& ot) {
+    //return (src.find(ot) == 0);
     for (size_t i = 0; i < ot.size(); i++)
     {
         if (ot[i] != src[i])
@@ -260,9 +261,10 @@ public:
         //todo: use unbind instead
         //almost equivalent to trust = target[::-1] (the last dim.)
         torch::Tensor trust = torch::stack({ target.transpose(0, -1)[-1] }).transpose(0,-1);//selects only the last dim.
+        float mt = trust.sum().item().toFloat();
         trust = torch::cat({ trust,trust,trust,trust }, -1);
         produced = produced * trust;
-        return torch::smooth_l1_loss(produced, target);// / batch_size;
+        return torch::smooth_l1_loss(produced, target, torch::Reduction::Sum, 0.5) / batch_size / mt;//Normally, this should not happen, but since we're using the ADAM optimizer and want to change the batch size between trainings sometimes, it should be here.
     }
 
     //NOTE: cannot be used for training.
@@ -425,7 +427,7 @@ public:
             status.epochs++;
             status.epoch_count += 1;
             optim.zero_grad();
-            status.loss += accumulated_loss / batch_size;
+            status.loss += accumulated_loss;
             remaining_in_batch = batch_size;
             accumulated_loss = 0;
             return;
@@ -433,6 +435,8 @@ public:
         auto pair = parent->getDataSet()->next_train();
         auto& img = *pair.second;
         auto& scene = pair.first;
+        //auto r=PartialCameraDataTemplate<PinholeCameraData>::check_internal_consistency(*(PinholeCameraData*)img.cam().get());
+        //std::cerr << r.first << ' ' << r.second << '\n';
         remaining_in_batch = std::max(0, remaining_in_batch - 1);
         accumulated_loss += train_image_with_splitting(scene.index, img.cam(), img.target);
     }
@@ -523,7 +527,7 @@ void NetworkPointer::train_frame(unsigned long long ms) {
 void NetworkPointer::train_long(unsigned long long ns, unsigned long long save_ns, const std::string& workspace_folder, bool quiet, unsigned long long report_ns) {
     auto start = std::chrono::high_resolution_clock::now();
     auto last_report = std::chrono::high_resolution_clock::now() - std::chrono::milliseconds(report_ns);
-    auto last_save = std::chrono::high_resolution_clock::now() - std::chrono::milliseconds(save_ns);
+    auto last_save = std::chrono::high_resolution_clock::now();
     auto end = std::chrono::high_resolution_clock::now();
     int processed_frames = 0;
     while (std::chrono::nanoseconds(end - start).count() <= ns)
@@ -554,14 +558,14 @@ void NetworkPointer::train_long(unsigned long long ns, unsigned long long save_n
         }
         if (save_ns > -1 && std::chrono::nanoseconds(end - last_save).count() >= save_ns) {
             last_save = end;
-            if (!quiet)std::cout << "Saving to: " << workspace_folder << "...\n";
+            if (!quiet)std::cout << "(autosave) Saving to: \"" << workspace_folder << "...\n";
             this->save(workspace_folder, fileType::CUSTOM_BINARY, true, true);
-            if (!quiet)std::cout << "Saved!\n";
+            if (!quiet)std::cout << "(autosave) Saved!\n\n";
         }
     }
 }
 
-void NetworkPointer::plot_example(Renderer& r, Renderer::ViewType points, Renderer::ViewType target, Renderer::ViewType result)
+void NetworkPointer::plot_example(Renderer& r, Renderer::ViewType points, Renderer::ViewType target, Renderer::ViewType result, std::shared_ptr<InteractiveCameraData> cd)
 {
     auto dat = dataSet->next_example();
     auto& img = *dat.second;
@@ -585,12 +589,14 @@ void NetworkPointer::plot_example(Renderer& r, Renderer::ViewType points, Render
     //The largest point view, the AI may use some smaller ones as well.
     {
         //todo? add more stuff in INTERACTIVE camera to view different channels.
-        auto tmp_tensor = network->plot_one(scene, img.cam()->scaleTo(w, h)).slice(-1, 0, 4);
-        tmp_tensor = (tmp_tensor * 255).clamp(0, 255).to(caffe2::kByte, false, false).to_dense().contiguous();
-
-        void* tmp;
-        tmp = tmp_tensor.data_ptr<unsigned char>();
-        bytesToView(*(const void**)&tmp, tmp_tensor.size(0), tmp_tensor.size(1), r, points);
+        for (int i=0; i < (cd->show_mips?network->mdl->layer_count():1); ++i) {
+            auto tmp_tensor = network->plot_one(scene, img.cam()->scaleTo(w/(1<<i), h/(1<<i))).slice(-1, 0, 4);
+            tmp_tensor = (tmp_tensor * 255).clamp(0, 255).to(caffe2::kByte, false, false).to_dense().contiguous();
+            
+            void* tmp;
+            tmp = tmp_tensor.data_ptr<unsigned char>();
+            bytesToSubView(*(const void**)&tmp, 0, 0, tmp_tensor.size(0), tmp_tensor.size(1), r, points);
+        }
     }
 
     //The output image.
@@ -680,9 +686,9 @@ torch::Tensor NetworkPointer::size_safe_forward(int sceneId, std::shared_ptr<Cam
     return network->size_safe_forward(sceneId, camera);
 }
 
-#define MODEL_POSTFIX "/model"
-#define OPTIM_POSTFIX "/optim"
-#define DATA_POSTFIX "/data"
+constexpr auto MODEL_POSTFIX = "/model";
+constexpr auto OPTIM_POSTFIX = "/optim";
+constexpr auto DATA_POSTFIX  = "/data" ;
 std::unique_ptr<NetworkPointer> NetworkPointer::load(const std::string& file, bool loadDatasetIfPresent, bool loadTrainImagesIfPresent, bool quiet)
 {
     std::unique_ptr<NetworkPointer> ptr = nullptr;
@@ -731,7 +737,6 @@ int NetworkPointer::save(const std::string& file, fileType_t mode ,bool saveData
 }
 
 void NetworkPointer::setBatchSize(int new_size){
-    this->network->optim.step();
     this->network->optim.zero_grad();
     this->network->batch_size = new_size;
     this->network->remaining_in_batch = new_size;

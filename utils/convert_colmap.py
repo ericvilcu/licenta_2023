@@ -139,7 +139,7 @@ def patch_points(points_txt,custom_bin_path, extra_color_channels=0):
                 f.write(struct.pack("fff"+("f"*extra_color_channels), *map(lambda x:x/255,[R, G, B] +([0]*extra_color_channels))))
     return r/ncol,g/ncol,b/ncol
 
-def make_dummy_environment(custom_bin_path, extra_color_channels:int=0,resolution:int=1024,clr=(0,0,0),depth:int=0,extra=None):
+def make_dummy_environment(custom_bin_path, extra_color_channels:int=0,resolution:int=128,clr=(0,0,0),depth:int=0,extra=None):
     #We may also want to make a dummy environment    
     clr = list(map(lambda x:clamp(x,0,1),clr))
     print("Color is:",clr)
