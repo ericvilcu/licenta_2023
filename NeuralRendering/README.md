@@ -10,3 +10,6 @@
 # Patience
 Be patient, as it LITERALLY has about 2GB of libraries to load before it starts. (and 6 GB more for CUDNN...)
 (mostly torchlib+cuda interop stuff)
+
+View documentation: https://www.overleaf.com/read/xfswjshhwvcz (WIP)
+NOTE: if you want the edit view, send me a message, I'm anxious about accidentally posting it.
