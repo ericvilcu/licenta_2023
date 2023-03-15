@@ -45,10 +45,14 @@ def patchImages(cameras_txt,images_txt,custom_bin_image_folder,overwrite=False,i
         rotation_mat = np.array(rot.as_matrix())
         #I honestly have no clue what is going on here. It is just the formula that seems to lead to the correct results and the plot aligning with the camera.
         #I can only blame my poor understanding of quaternions and the systems around them.
-        translation = np.matmul(-rotation_mat.transpose(),np.array([TX,TY,-TZ]))
-        translation=-np.array([translation[0],translation[1],translation[2]])        
-        rotation_mat = -rotation_mat.transpose()
-        translation = np.matmul(rotation_mat,translation)
+        #I think I know what I'm doing here now. I'm inverting the matrix in a really convoluted way because it is a matrix meant to be multiplied to the left, and I'm multiplying it to the right.
+        #TBH now that I know that I want to replace it with a custom transform class with a 3x3 rotation and 1x3 translation
+        #still not sure what those minuses are about 
+        #translation = np.matmul(-rotation_mat.transpose(),np.array([TX,TY,-TZ]))
+        #translation=-np.array([translation[0],translation[1],translation[2]])        
+        #rotation_mat = -rotation_mat.transpose()
+        #translation = np.matmul(rotation_mat,translation)
+        translation = np.array([TX,TY,-TZ])
         
         if PN>0:
             print(img)
@@ -63,18 +67,23 @@ def patchImages(cameras_txt,images_txt,custom_bin_image_folder,overwrite=False,i
         if(type == "PINHOLE"):
             t=0
             w,h,fx,fy,ppx,ppy=map(float,cam[2:])
+            w0=h0=0
         elif(type == "SIMPLE_PINHOLE"):
             t=0
             w,h,fx,ppx,ppy=map(float,cam[2:])
+            w0=h0=0
             fy=fx
         elif(type == "RADIAL"):
             t=1
             w,h,fx,ppx,ppy,k1,k2=map(float,cam[2:])
+            w0=h0=0
             fy=fx
         elif(type == "SIMPLE_RADIAL"):
             t=1
             w,h,fx,ppx,ppy,k1=map(float,cam[2:])
+            w0=h0=0
             fy=fx;k2=0
+        else:raise f"{type} is an unknown camera type."
         if(autoReorder):
             path_to_patch=os.path.join(custom_bin_image_folder,str(IDX)+end)
             IDX+=1
@@ -82,30 +91,26 @@ def patchImages(cameras_txt,images_txt,custom_bin_image_folder,overwrite=False,i
         if(not overwrite):
             if os.path.exists(path_to_patch):
                 with open(path_to_patch,"r+b") as f:
+                    f.write(struct.pack("i",t))
+                    f.write(struct.pack("IIII",int(w0),int(h0),int(w),int(h)))
                     if(t==0):#Note: changing camera models with patch destroys stuff, but since I'm not really using patch mode anymore, that may be ok.
-                        f.write(struct.pack("i",0))
                         f.write(struct.pack("f"*12,*chain(*rotation_mat),*translation))
                         f.write(struct.pack(4*"f",ppy,ppx,fy,fx))
                     elif(t==1):
-                        f.write(struct.pack("i",1))
                         f.write(struct.pack("f"*12,*chain(*rotation_mat),*translation))
                         f.write(struct.pack(6*"f",ppy,ppx,fy,fx,k1,k2))
-                    n=h
-                    m=w
-                    f.write(struct.pack("II",int(n),int(m)))
         else:
             with open(path_to_patch,"wb") as f:
+                f.write(struct.pack("i",t))
+                f.write(struct.pack("IIII",int(w0),int(h0),int(w),int(h)))
                 if(t==0):
-                    f.write(struct.pack("i",0))
                     f.write(struct.pack("f"*12,*chain(*rotation_mat),*translation))
                     f.write(struct.pack(4*"f",ppy,ppx,fy,fx))
                 elif(t==1):
-                    f.write(struct.pack("i",1))
                     f.write(struct.pack("f"*12,*chain(*rotation_mat),*translation))
                     f.write(struct.pack(6*"f",ppy,ppx,fy,fx,k1,k2))
                 n=h
                 m=w
-                f.write(struct.pack("II",int(n),int(m)))
                 from PIL import Image
                 img_raw = Image.open(os.path.join(img_location,img_name))
                 #"We have .bmp at home"
@@ -139,7 +144,7 @@ def patch_points(points_txt,custom_bin_path, extra_color_channels=0):
                 f.write(struct.pack("fff"+("f"*extra_color_channels), *map(lambda x:x/255,[R, G, B] +([0]*extra_color_channels))))
     return r/ncol,g/ncol,b/ncol
 
-def make_dummy_environment(custom_bin_path, extra_color_channels:int=0,resolution:int=128,clr=(0,0,0),depth:int=0,extra=None):
+def make_dummy_environment(custom_bin_path, extra_color_channels:int=0,resolution:int=512,clr=(0,0,0),depth:int=0,extra=None):
     #We may also want to make a dummy environment    
     clr = list(map(lambda x:clamp(x,0,1),clr))
     print("Color is:",clr)

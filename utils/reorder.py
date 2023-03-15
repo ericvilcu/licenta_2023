@@ -6,10 +6,12 @@ if(len(sys.argv)==1):
     DIR=input("DIR=")
     EXT=input("EXT=")
     START=int(input("START="))
+    PAD=int(input("PAD="))
 else:
     DIR=sys.argv[1]
     EXT=sys.argv[2]
     START=int(sys.argv[3])
+    PAD=int(sys.argv[4]) if len(sys.argv>4) else 0
 import os
 try:
     l = [int(i[:len(i)-len(EXT)]) for i in os.listdir(DIR) if i.endswith(EXT)]
@@ -18,4 +20,5 @@ except:
     l = [str(i[:len(i)-len(EXT)]) for i in os.listdir(DIR) if i.endswith(EXT)]
 l.sort()
 for i,n in enumerate(l):
-    os.rename(os.path.join(DIR,str(n)+EXT),os.path.join(DIR,str(START+i)+EXT))
+    ii=format(START+i,f"0{PAD}d")
+    os.rename(os.path.join(DIR,str(n)+EXT),os.path.join(DIR,ii+EXT))
