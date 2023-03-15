@@ -18,6 +18,13 @@
 * @param memory GPU memory, containing uchar4's.
 */
 cudaError_t bytesToView(const void*& memory, const int h, const int w, Renderer& renderer, Renderer::ViewType vt);
+
+/**
+* @brief Transfers bytes to a OpenGL surface.
+*
+* @param memory GPU memory, containing uchar4's.
+*/
+cudaError_t bytesToSubView(const void*& memory, const int y0, const int x0, const int h, const int w, Renderer& renderer, Renderer::ViewType vt);
 /**
 * @brief Plots to GPU memory. May return a depth buffer if it is not null
 *

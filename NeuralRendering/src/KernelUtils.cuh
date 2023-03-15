@@ -1,23 +1,23 @@
 #pragma once
 #include <math.h>
 #include "CudaIncludesAndMacros.cuh"
+#include "dtype4x4.cuh"
 #define approx_PI 3.141592
-//Essentially, __utilf means: 1. always inline, and 2. can work on CPU *and* GPU
-#define __utilf __device__ __host__ __forceinline__
+//Essentially, __hdfi__ means: 1. always inline, and 2. can work on CPU (aka host) *and* GPU (aka device)
 
 template <typename T>
-__utilf T clamp(T x, T mn, T mx) {
+__hdfi__ T clamp(T x, T mn, T mx) {
 	if (x < mn) return mn;
 	if (x > mx) return mx;
 	return x;
 }
 
 template <typename T, typename M>
-__utilf T mix(T f, T s, M amt) {
+__hdfi__ T mix(T f, T s, M amt) {
 	return (T)(f * (1 - amt) + s * amt);
 }
 template <typename T, typename M>
-__utilf T mixc(T f, T s, M amt) {
+__hdfi__ T mixc(T f, T s, M amt) {
 	return mix(f, s, clamp<M>(amt, 0, 1));
 }
 
@@ -25,19 +25,19 @@ __utilf T mixc(T f, T s, M amt) {
 //Unless I find a way to use decltype to generalize them further as to not even need abs# and such, I will just write whatever I need whenever I need it here.
 
 template<typename T>
-__utilf T abs(T s) {
+__hdfi__ T abs(T s) {
 	if (s > 0) return s;
 	return -s;
 }
 template<typename T2>
-__utilf T2 abs2(T2 s) {
+__hdfi__ T2 abs2(T2 s) {
 	T2 out;
 	out.x = abs(s.x);
 	out.y = abs(s.y);
 	return out;
 }
 template<typename T3>
-__utilf T3 abs3(T3 s) {
+__hdfi__ T3 abs3(T3 s) {
 	//decltype(T3::x);
 	//decltype(T3::y);
 	//decltype(T3::z);
@@ -48,7 +48,7 @@ __utilf T3 abs3(T3 s) {
 	return out;
 }
 template<typename T4>
-__utilf T4 abs4(T4 s) {
+__hdfi__ T4 abs4(T4 s) {
 	T4 out;
 	out.x = abs(s.x);
 	out.y = abs(s.y);
@@ -57,35 +57,35 @@ __utilf T4 abs4(T4 s) {
 	return out;
 }
 
-__utilf float3 add(float3 a, float3 b) {
+__hdfi__ float3 add(float3 a, float3 b) {
 	return make_float3(a.x + b.x, a.y + b.y, a.z + b.z);
 }
 
-__utilf float frac(float in) {
+__hdfi__ float frac(float in) {
 	//return fmodf(in, 1.0f);
 	return in - floorf(in);
 }
 
-__utilf float3 frac(float3 in) {
+__hdfi__ float3 frac(float3 in) {
 	return make_float3(frac(in.x), frac(in.y), frac(in.z));
 }
 
-__utilf float4 frac(float4 in) {
+__hdfi__ float4 frac(float4 in) {
 	return make_float4(frac(in.x), frac(in.y), frac(in.z), frac(in.w));
 }
 
 
-__utilf uchar4 toRGBA8(float4 rgba) {
+__hdfi__ uchar4 toRGBA8(float4 rgba) {
 	return make_uchar4((unsigned char)(255.0f * rgba.x), (unsigned char)(255.0f * rgba.y), (unsigned char)(255.0f * rgba.z), (unsigned char)(255.0f * rgba.w));
 }
 
-__utilf float4 toRGBA32f(uchar4 rgba) {
+__hdfi__ float4 toRGBA32f(uchar4 rgba) {
 	return make_float4(1 / 255.0f * rgba.x, 1 / 255.0f * rgba.y, 1 / 255.0f * rgba.z, 1 / 255.0f * rgba.w);
 }
 
 
 
-__utilf float4 fromHSV(float4 hsva) {
+__hdfi__ float4 fromHSV(float4 hsva) {
 	/*
 	Original HLSL code:
 	float4 K = float4(1.0, 2.0 / 3.0, 1.0 / 3.0, 3.0);
@@ -108,21 +108,21 @@ __utilf float4 fromHSV(float4 hsva) {
 }
 
 
-__utilf float magnitude(float3 v) {
+__hdfi__ float magnitude(float3 v) {
 	return sqrtf((v.x*v.x)+(v.y*v.y)+(v.z*v.z));
 }
 
-__utilf float3 normalized(float3 v) {
+__hdfi__ float3 normalized(float3 v) {
 	float mag = magnitude(v);
 	return make_float3(v.x, v.y, v.z);
 }
 
-__utilf float4 float4_from(uchar4 rgba) {
+__hdfi__ float4 float4_from(uchar4 rgba) {
 	return make_float4(rgba.x * (1 / 255.0f), rgba.y * (1 / 255.0f), rgba.z * (1 / 255.0f), rgba.w * (1 / 255.0f));
 }
 
 
-__utilf uint3 cubemap_coords(int resolution, float3 direction) {
+__hdfi__ uint3 cubemap_coords(int resolution, float3 direction) {
 	float3 abs_dir = abs3(direction);
 	//rewrite of: https://www.gamedev.net/forums/topic/687535-implementing-a-cube-map-lookup-function/5337472/
 	if (abs_dir.z >= abs_dir.y && abs_dir.z >= abs_dir.x) {
@@ -150,19 +150,19 @@ __utilf uint3 cubemap_coords(int resolution, float3 direction) {
 		return make_uint3(face_idx, uv.x, uv.y);
 	}
 }
-__utilf unsigned int pixel_from_cubemap_coords(int resolution, uint3 data) {
+__hdfi__ unsigned int pixel_from_cubemap_coords(int resolution, uint3 data) {
 	//clamps may be unnecesary
 	return (unsigned int)(data.x * resolution * resolution + clamp<unsigned int>(data.y, 0, resolution - 1) + clamp<unsigned int>(data.z, 0, resolution - 1) * resolution);
 }
 //Plotting stuff
-__utilf float4 sample_environment_data(uchar4* environment_data, int resolution, float3 direction) {
+__hdfi__ float4 sample_environment_data(uchar4* environment_data, int resolution, float3 direction) {
 	return float4_from(environment_data[pixel_from_cubemap_coords(resolution, cubemap_coords(resolution, direction))]);
 }
-__utilf float4 sample_environment_data(float4* environment_data, int resolution, float3 direction) {
+__hdfi__ float4 sample_environment_data(float4* environment_data, int resolution, float3 direction) {
 	return environment_data[pixel_from_cubemap_coords(resolution, cubemap_coords(resolution, direction))];
 }
 
-__utilf float* sample_environment_data_v2(float* environment_data, int resolution, float3 direction, int ndim) {
+__hdfi__ float* sample_environment_data_v2(float* environment_data, int resolution, float3 direction, int ndim) {
 	return &environment_data[(ndim+1) * pixel_from_cubemap_coords(resolution, cubemap_coords(resolution, direction))];
 }
 

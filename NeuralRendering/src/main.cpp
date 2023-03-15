@@ -8,6 +8,33 @@
 #include "AITrainer.hpp"
 #include <opencv2/opencv.hpp>
 
+const char* help_cstring =
+"use: <executabme> <arguments>\n\
+Possible arguments:\n\
+ Utility:\n\
+    \"--workspace <directory>\" MUST BE SPECIFIED IN ALL COMMANDS. Decides active workspace directory, even if it is not created yet.\n\
+    \"--autosave <seconds:float> specifies how often an autosave should be performed.\"\n\
+    \"--quiet\" Prevents any text to being printed to stdout, stderr may still be written to in case of errors.\n\
+    \"--timeout\" how much time to auto-close in (measured from data loaded to training/render stopped)\n\
+ Initialization:\n\
+    \"--make-workspace\" specify where to make the workspace. All other initialization arguments have no effect if this is not specified.\n\
+    \"--dataset <directory>\" Used to specify to load one of the datasets from. Can (and should) be specified multiple times. The first dataset should have training images(bug)\n\
+    \"--extra-channels <num:int>\" How many channels (aside from r/g/b and depth(where required)) to initialize the data with. They will be filled with random values.\n\
+    \"--nn-depth <num:int>\" How many sub-layers the CNN has, each one means another draw call, but can improve image quality.\n\
+ Training:\n\
+    \"--batch <num:int>\" number of images to train per batch.\n\
+    \"--random-train <active:bool>\" specifies wether or not the train order should be randomized. Recommended to be set to true if using mini-batches, and false if regular batches.\n\
+    \"--train-environment\" specifies that environment and points should be modified.\n\
+    \"--train-environment-only\" (not currently functional) specifies that only environment and points should be modified.\n\
+    \"--no-train\" Won't train, only showing live a renderer.\n\
+ Renderer:\n\
+    \"--example-refresh <seconds:float>\" How fast examples should be updated. Default is 2 if training and 0.3 otherwise.\n\
+    \"--no-render\" No live renderer will be used and training will be done in the background.\n\
+    \"--save-samples <directory>\" Saves some pngs of rendered results. Some of them may be nudged or rotated.\n\
+ HELP:\n\
+    \"--help\" \"-h\" \"-?\" displays this text and ignores any other parameters.\n\
+";
+
 cli_args::cli_args(int argc, char** argv) {
     if (argc == 1) {
         std::cerr << "no arguments provided. Use --help to get help."; exit(-1);
@@ -20,6 +47,7 @@ cli_args::cli_args(int argc, char** argv) {
         else if (v == "--timeout") { timeout = true; timeout_s = atof(argv[++i]); }
         else if (v == "--batch") { batch_size = atoi(argv[++i]); }
         else if (v == "--train-environment") { train_environment = true; }
+        else if (v == "--train-environment-only") { train_environment = true; train_nn = false; }
         else if (v == "--dataset") { load_set = true; datasets_path.push_back(argv[++i]); }
         else if (v == "--workspace") { load_set = true; workspace = argv[++i]; }
         else if (v == "--no-render") { NO_LIVE_RENDER = true; }
@@ -32,7 +60,7 @@ cli_args::cli_args(int argc, char** argv) {
         else if (v == "--save-samples") { sample_save_path = argv[++i]; }
         else if (v == "--random-train") { random_train = (std::string(argv[++i]) == "true") || (std::string(argv[++i]) == "1"); }
         else if (v == "--help" || v == "-h" || v == "-?") {
-            std::cerr << "todo: write help\n";
+            std::cerr << help_cstring;
             exit(0);
         }
         else {
@@ -46,6 +74,7 @@ cli_args::cli_args(int argc, char** argv) {
     return;
 }
 cli_args* global_args;
+
 int main(int argc, char** argv)
 {
     //todo: more options (disable GUI, etc.)
@@ -76,19 +105,20 @@ int main(int argc, char** argv)
         network = NetworkPointer::load(args.workspace, true, true, args.quiet);
         if (!args.quiet)std::cout << "Network and data loaded...\n";
         dataSet = network->getDataSet();
-
+        
         NetworkPointer& nw = *network;
         nw.setBatchSize(args.batch_size);
-        nw.train_images(args.train_environment);
+        nw.train_environment(args.train_environment);
+        nw.train_nn(args.train_nn);
         if (args.NO_LIVE_RENDER) {
-            if (args.timeout)
-                nw.train_long((unsigned long long)(args.timeout_s * 1e9), (unsigned long long)(args.autosave_freq * 1e9), args.workspace, args.quiet);
-            else std::cerr << "Please provide a timeout value.";
+            if (args.timeout && args.train)
+                    nw.train_long((unsigned long long)(args.timeout_s * 1e9), (unsigned long long)(args.autosave_freq * 1e9), args.workspace, args.quiet);
+            else std::cerr << "Please provide a timeout value and do not specify no-train if no renderer is shown.";
         }
         else {
             if (args.train) {
                 if (!args.quiet)std::cout << "First train (initializes some torch things)\n";
-                nw.train_frame(0);
+                nw.train_frame(100);
                 if (!args.quiet)std::cout << "First train done\n";
             }
             std::shared_ptr<InteractiveCameraData> cam_data = std::make_shared<InteractiveCameraData>(1, PI * 1 / 3, 0.01f, 1e9f);
@@ -127,6 +157,11 @@ int main(int argc, char** argv)
                     //std::cout << cam_data.translation.x << ' ' << cam_data.translation.y << ' ' << cam_data.translation.z << '\n';
                     //std::cout << cam_data.transform << '\n';
                 }
+                cam_data->w = 832; cam_data->h = 256;
+                cam_data->recalculatePerspective(cam_data->h, cam_data->w);
+                //auto &rz=cam_data->check_internal_consistency(*cam_data);
+                //std::cerr << rz.first << ' ' << rz.second << '\n';
+                cam_data->w = -1; cam_data->h = -1;
                 auto current_frame = std::chrono::high_resolution_clock::now();
                 controller.processMovements();
                 if (cam_data->use_neural) {
@@ -137,7 +172,7 @@ int main(int argc, char** argv)
                 }
 
                 if ((current_frame - last_example_update).count() * 1e-9 > example_refresh_s) {
-                    nw.plot_example(r, Renderer::ViewTypeEnum::POINTS_VIEW, Renderer::ViewTypeEnum::TRAIN_VIEW_2, Renderer::ViewTypeEnum::TRAIN_VIEW_1);
+                    nw.plot_example(r, Renderer::ViewTypeEnum::POINTS_VIEW, Renderer::ViewTypeEnum::TRAIN_VIEW_2, Renderer::ViewTypeEnum::TRAIN_VIEW_1, cam_data);
                     last_example_update = current_frame;
                 }
 
@@ -161,7 +196,7 @@ int main(int argc, char** argv)
                     //by the way, I mean BSOD-resistant, since that's happened to me twice already, and that would require modifying the loading as well.
                     if (!args.quiet)std::cout << "(autosave) Saving to: " << args.workspace << "...\n";
                     nw.save(args.workspace, fileType::CUSTOM_BINARY, true, args.save_train_images);
-                    if (!args.quiet)std::cout << "(autosave) Saved!\n";
+                    if (!args.quiet)std::cout << "(autosave) Saved!\n\n";
                     last_autosave = std::chrono::high_resolution_clock::now();
                 }
             }
@@ -173,6 +208,7 @@ int main(int argc, char** argv)
 
         if (args.sample_save_path != "") {
             if (!args.quiet)std::cout << "Saving some samples to: \"" << args.sample_save_path << "\"\n";
+            makeDirIfNotPresent(args.sample_save_path);
             for (int i = 0; i < dataSet->num_scenes(); ++i) {
                 if (!args.quiet)std::cout << "Saving samples from scene " << i << "\n";
                 for (int j = 0; j < dataSet->scene(i).num_train_images(); ++j) {

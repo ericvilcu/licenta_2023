@@ -83,7 +83,7 @@ void DataSet::initializeLoaders() {
     train_image_provider = std::make_unique<ImageQueue>(5, nullptr);
     show_image_provider = std::make_unique<ImageQueue>(2, nullptr);
     if(global_args->random_train)
-        trainImageLoader = std::make_unique<ImageLoader>(img_id(0, 0), [this](img_id id) {return loadImageOfRand(id); }, *train_image_provider);
+        trainImageLoader = std::make_unique<ImageLoader>(initLoadImageOfRand(), [this](img_id id) {return loadImageOfRand(id); }, *train_image_provider);
     else
         trainImageLoader = std::make_unique<ImageLoader>(img_id(0, 0), [this](img_id id) {return loadImageOf(id); }, *train_image_provider);
     showImageLoader = std::make_unique<ImageLoader>(img_id(0, 0), [this](img_id id) {return loadImageOf(id); }, *show_image_provider);
@@ -195,7 +195,8 @@ void DataModuleImpl::expand_to_ndim(int ndim)
                 pad_sizes.push_back(sz);
             }
             pad_sizes[pad_sizes.size() - 1] = extra;
-            torch::Tensor pad_values = torch::rand(pad_sizes, torch::TensorOptions().device(torch::kCUDA));
+            torch::Tensor pad_values = torch::zeros(pad_sizes, torch::TensorOptions().device(torch::kCUDA));
+            pad_values = torch::normal_functional(pad_values, 0, 0.1);
             point_data = torch::cat({ point_data, pad_values }, -1).contiguous();
         }
         point_data.set_requires_grad(true);
@@ -207,7 +208,8 @@ void DataModuleImpl::expand_to_ndim(int ndim)
                 pad_sizes.push_back(sz);
             }
             pad_sizes[pad_sizes.size() - 1] = extra;
-            torch::Tensor pad_values = torch::rand(pad_sizes, torch::TensorOptions().device(torch::kCUDA));
+            torch::Tensor pad_values = torch::zeros (pad_sizes, torch::TensorOptions().device(torch::kCUDA));
+            pad_values = torch::normal_functional(pad_values, 0, 0.1);
             //NOTE: depth is not randomized, it is initialized with whatever was in the file and is always at the back.
             environment_data = torch::cat({ environment_data.slice(-1,0,-1), pad_values, environment_data.slice(-1,-1)}, -1).contiguous();
         }

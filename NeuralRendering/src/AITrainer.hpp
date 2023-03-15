@@ -40,7 +40,7 @@ public:
      * 
      * @param r renderer to place the data in.
      */
-    void plot_example(Renderer& r, Renderer::ViewType points, Renderer::ViewType target, Renderer::ViewType result);
+    void plot_example(Renderer& r, Renderer::ViewType points, Renderer::ViewType target, Renderer::ViewType result, std::shared_ptr<InteractiveCameraData> cd);
     /**
     * @brief Plots to renderer a scene from the perspective of a camera, using the neural renderer.
     */
@@ -54,7 +54,8 @@ public:
     //todo: some way to add more data
     void setBatchSize(int new_size);
     //todo: some way to combine scenes
-    void train_images(bool train);
+    void train_environment(bool train);
+    void train_nn(bool train);
     //This may be needed as shared_ptr's destructor may not be visible from any other place.
     torch::Tensor forward(int sceneId, std::shared_ptr<CameraDataItf> camera);
     torch::Tensor size_safe_forward(int sceneId, std::shared_ptr<CameraDataItf> camera);

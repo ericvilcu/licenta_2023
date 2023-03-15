@@ -12,6 +12,7 @@
 #include "cuda_runtime.h"
 #include "HeaderThatReenablesWarnings.h"
 
+//Essentially, __hdfi__ means: 1. always inline, and 2. can work on CPU (aka host) *and* GPU (aka device)
 #define  __hdfi__ __host__ __device__ __forceinline__
 
 template <typename DTYPE, typename DTYPE4, typename DTYPE3>
@@ -251,9 +252,9 @@ struct dtype4x4 {
         //m[3][1] = m[0][1] * v.x + m[1][1] * v.y + m[2][1] * v.z;
         //m[3][2] = m[0][2] * v.x + m[1][2] * v.y + m[2][2] * v.z;
         //which is used to assign translation to a rotation;
-        ret.x = m[0][0] * m[3][0] + m[0][1] * m[3][1] + m[0][2] * m[3][2];
-        ret.y = m[1][0] * m[3][0] + m[1][1] * m[3][1] + m[1][2] * m[3][2];
-        ret.z = m[2][0] * m[3][0] + m[2][1] * m[3][1] + m[2][2] * m[3][2];
+        ret.x = -(m[0][0] * m[3][0] + m[0][1] * m[3][1] + m[0][2] * m[3][2]);
+        ret.y = -(m[1][0] * m[3][0] + m[1][1] * m[3][1] + m[1][2] * m[3][2]);
+        ret.z = -(m[2][0] * m[3][0] + m[2][1] * m[3][1] + m[2][2] * m[3][2]);
         return ret;
     }
 

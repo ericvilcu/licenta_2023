@@ -12,7 +12,7 @@ struct cli_args {
     bool NO_LIVE_RENDER = false;
     bool save_train_images = true;
     bool train = true;
-    bool train_environment = false;
+    bool train_environment = false, train_nn = true;
     float example_refresh_rate = -1;
     int batch_size = 3;
     int ndim = 3;
