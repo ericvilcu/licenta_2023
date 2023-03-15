@@ -32,6 +32,7 @@ public:
 		torch::Tensor weights = saved_stuff[2];
 		//auto tsr_cam = ctx->saved_data["cam_tsr"].toTensor();
 		std::shared_ptr<CameraDataItf> camera = CameraDataItf::from_serial(false, ctx->saved_data["cam_bin"].toString()->string());
+
 		int ndim = points.size(-1) - 3;
 		torch::Tensor gradient_points = torch::zeros(points.sizes(), torch::TensorOptions().device(torch::kCUDA)).contiguous();
 		torch::Tensor gradient_environment = torch::zeros(environment.sizes(), torch::TensorOptions().device(torch::kCUDA)).contiguous();

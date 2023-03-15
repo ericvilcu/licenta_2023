@@ -176,9 +176,10 @@ public:
 		if (shuffled_for_random_load.size() == 0) {
 			next = initLoadImageOfRand();
 		}
-		else
+		else {
 			next = shuffled_for_random_load[shuffled_for_random_load.size() - 1];
-		shuffled_for_random_load.pop_back();
+			shuffled_for_random_load.pop_back();
+		}
 		return std::make_pair(img_id(next.first, next.second), scene(scene_id).loadOne(image_id));
 	};
 

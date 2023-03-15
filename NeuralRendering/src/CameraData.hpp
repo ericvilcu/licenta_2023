@@ -99,18 +99,18 @@ struct PartialCameraDataTemplate {
 	//tl;dr high numbers=bad, if first is <3 it is somewhat ok, if second < 0.3 it is very ok, if second > 2 it is VERY bad.
 	static std::pair<float,float> check_internal_consistency(const selfclass& cam) {
 		float mx = 0, sm = 0;
-		const int pad=1;
+		const int pad=5;
 		for (int i = pad; i < cam.w - pad; ++i) {
 			for (int j = pad; j < cam.h - pad; ++j) {
 				const float4x4& transform = cam.transform;
 				float3 dir = cam.direction_for_pixel(make_float2(i+0.5f, j+0.5f));
-				//std::cerr << dir.x << ' ' << dir.y << ' ' << dir.z << '\n';
+				std::cerr << dir.x << ' ' << dir.y << ' ' << dir.z << '\n';
 				float depth = 1;
 				float3 ct = transform.translation();
-				//std::cerr << ct.x << ' ' << ct.y << ' ' << ct.z << '\n';
+				std::cerr << ct.x << ' ' << ct.y << ' ' << ct.z << '\n';
 				ScreenCoordsWithDepth out = cam.mapToScreenCoords(make_float4(dir.x * depth + ct.x, dir.y * depth + ct.y, dir.z * depth + ct.z, 1));
 				float dt = abs(out.coords.x - i) + abs(out.coords.y - j);
-				//std::cerr << dt << ' ' << out.coords.x << ' ' << out.coords.y << ' ' << out.depth << '\n';
+				std::cerr << dt << ' ' << out.coords.x << ' ' << out.coords.y << ' ' << out.depth << '\n';
 				if (out.valid) {
 					sm += dt;
 					if (dt > mx)mx = dt;
@@ -364,7 +364,7 @@ struct PartialRadialCameraData :PartialCameraDataTemplate<PartialRadialCameraDat
 		// Parameters for Newton iteration using numerical differentiation with
 		// central differences, 100 iterations should be enough even for complex
 		// camera models with higher order terms.
-		const size_t kNumIterations = 100;
+		const size_t kNumIterations = 5;
 		const double kMaxStepNorm = 1e-10;
 		const double kRelStepSize = 1e-6;
 
@@ -427,7 +427,7 @@ struct PartialRadialCameraData :PartialCameraDataTemplate<PartialRadialCameraDat
 
 		int dx = (int)(-fx * nx + ppx);
 		int dy = (int)(-fy * ny + ppy);
-		if (dx < 0 || dy < 0 || dx >= w || dy >= h)return ScreenCoordsWithDepth::invalid();
+		if (dx < 0 || dy < 0 || dx >= w || dy >= h)return ScreenCoordsWithDepth(make_int2(dx, dy), world_coords.z, false);
 		return ScreenCoordsWithDepth(make_int2(dx, dy), world_coords.z);
 	};
 	__hdfi__ ScreenCoordsWithDepth mapToScreenCoords(float4 coords) const {

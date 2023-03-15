@@ -25,6 +25,7 @@ Possible arguments:\n\
     \"--batch <num:int>\" number of images to train per batch.\n\
     \"--random-train <active:bool>\" specifies wether or not the train order should be randomized. Recommended to be set to true if using mini-batches, and false if regular batches.\n\
     \"--train-environment\" specifies that environment and points should be modified.\n\
+    \"--train-environment-only\" (not currently functional) specifies that only environment and points should be modified.\n\
     \"--no-train\" Won't train, only showing live a renderer.\n\
  Renderer:\n\
     \"--example-refresh <seconds:float>\" How fast examples should be updated. Default is 2 if training and 0.3 otherwise.\n\
@@ -46,6 +47,7 @@ cli_args::cli_args(int argc, char** argv) {
         else if (v == "--timeout") { timeout = true; timeout_s = atof(argv[++i]); }
         else if (v == "--batch") { batch_size = atoi(argv[++i]); }
         else if (v == "--train-environment") { train_environment = true; }
+        else if (v == "--train-environment-only") { train_environment = true; train_nn = false; }
         else if (v == "--dataset") { load_set = true; datasets_path.push_back(argv[++i]); }
         else if (v == "--workspace") { load_set = true; workspace = argv[++i]; }
         else if (v == "--no-render") { NO_LIVE_RENDER = true; }
@@ -106,7 +108,8 @@ int main(int argc, char** argv)
         
         NetworkPointer& nw = *network;
         nw.setBatchSize(args.batch_size);
-        nw.train_images(args.train_environment);
+        nw.train_environment(args.train_environment);
+        nw.train_nn(args.train_nn);
         if (args.NO_LIVE_RENDER) {
             if (args.timeout && args.train)
                     nw.train_long((unsigned long long)(args.timeout_s * 1e9), (unsigned long long)(args.autosave_freq * 1e9), args.workspace, args.quiet);
@@ -115,7 +118,7 @@ int main(int argc, char** argv)
         else {
             if (args.train) {
                 if (!args.quiet)std::cout << "First train (initializes some torch things)\n";
-                nw.train_frame(0);
+                nw.train_frame(100);
                 if (!args.quiet)std::cout << "First train done\n";
             }
             std::shared_ptr<InteractiveCameraData> cam_data = std::make_shared<InteractiveCameraData>(1, PI * 1 / 3, 0.01f, 1e9f);

@@ -37,14 +37,14 @@ std::string RadialCameraData::serialized(bool text) const
 {
 	if (text) {
 		std::stringstream ss{ std::stringstream::out };
-		ss << CameraType::PINHOLE_PROJECTION << '\n';
+		ss << CameraType::RADIAL << '\n';
 		write_transform(ss, transform, /*text = */ true);
 		ss << ppy << ' ' << ppx << ' ' << fy << ' ' << fx << ' ' << k1 << ' ' << k2 << ' ' << h << ' ' << w << ' ';
 		return ss.str();
 	}
 	else {
 		std::stringstream ss{ std::stringstream::out | std::ios::binary };
-		writeOneBinary(ss, (int)CameraType::PINHOLE_PROJECTION);
+		writeOneBinary(ss, (int)CameraType::RADIAL);
 		write_transform(ss, transform, /*text = */ false);
 		writeOneBinary(ss, ppy); writeOneBinary(ss, ppx); writeOneBinary(ss, fy); writeOneBinary(ss, fx); writeOneBinary(ss, k1); writeOneBinary(ss, k2);
 		writeOneBinary(ss, h); writeOneBinary(ss, w);
