@@ -13,6 +13,7 @@ struct Transform{
         rotation[3]=0;rotation[4]=1;rotation[5]=0;
         rotation[6]=0;rotation[7]=0;rotation[8]=1;
     }
+    //!!!IMPORTANT!!! NOTE: matricies are multiplied to the right due to a mistake in the code. TODO: switch to left, and switch cameraController as well.
     __hdfi__ float3 apply_rotation(float3 pos) const{
         float3 out;
         out.x = pos.x*rotation[0] + pos.y*rotation[1] + pos.z*rotation[2];
@@ -21,7 +22,9 @@ struct Transform{
         return out;
     }
     __hdfi__ float3 unapply_rotation(float3 pos) const{
-        float3 out;//The inverse of an orthogonal matrix is its transpose. source: https://en.wikipedia.org/wiki/Orthogonal_matrix
+        float3 out;
+        //The inverse of an orthogonal matrix is its transpose. source: https://en.wikipedia.org/wiki/Orthogonal_matrix
+        //Any rotation matrix is orthogonal, because the unit vector in each direction remains unitary and perpendicular to the others after transformation.
         out.x = pos.x*rotation[0] + pos.y*rotation[3] + pos.z*rotation[6];
         out.y = pos.x*rotation[1] + pos.y*rotation[4] + pos.z*rotation[7];
         out.z = pos.x*rotation[2] + pos.y*rotation[5] + pos.z*rotation[8];

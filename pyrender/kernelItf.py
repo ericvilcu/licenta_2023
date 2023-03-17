@@ -2,19 +2,29 @@ from cuda import nvrtc
 import cuda
 import cuda_kernels
 import torch
-import pycuda.autoinit
 import pycuda.driver as drv
 from pycuda.compiler import SourceModule
 import pycuda
-import args
 import math
 
-dev_data = pycuda.tools.DeviceData()
-max_threads:int=dev_data.max_threads
-line_max_threads=(max_threads,1,1)
-square_max_thread_size = (*map(int,2*[math.sqrt(max_threads)]+[1]),)
+#NOTE: the import below overrides the torch's CUDA environment and causes errors.
+#import pycuda.autoinit as cuda_context 
+#We do this instead, but note that torch has to be imported beforehand either from this file or another.
+drv.init()
+cuda_context = drv.Device(0).retain_primary_context()
+cuda_context.push()
 
-del dev_data
+max_threads=int(256)
+line_max_threads=(max_threads,int(1),int(1))
+square_max_thread_size: tuple[int, int, int] = (*map(int,2*[math.sqrt(max_threads)]+[1]),)
+def init_thread_data():
+    device = drv.Device(0)
+    device_data= device.get_attributes()
+    global max_threads,line_max_threads,square_max_thread_size
+    max_threads=int(device_data[pycuda._driver.device_attribute.MAX_THREADS_PER_BLOCK])
+    line_max_threads=(max_threads,1,1)
+    square_max_thread_size = (*map(int,2*[math.sqrt(max_threads)]+[1]),)
+init_thread_data()
 
 def ASSERT_DRV(err):
     if isinstance(err, cuda.CUresult):
@@ -118,8 +128,8 @@ def plotSinglePointsToTensor(cam_type:int,cam_data:(torch.Tensor or list[float])
     )
     drv.Context.synchronize()
     return plot,weights
-def plotSinglePointsBackwardsToTensor():
-    #Step 1: clear.
+
+def plotSinglePointsBackwardsToTensor(*args):
     #TODO
     return None,None,None
 

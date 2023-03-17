@@ -4,7 +4,7 @@ from renderModule import renderFunctionSingle
 import GLRenderer
 
 def error_test():
-    #An error reccomended I try this to check for some error.
+    #An error recommended I try this to check for some error.
     import torch
     torch.backends.cuda.matmul.allow_tf32 = False
     torch.backends.cudnn.benchmark = False
@@ -37,7 +37,7 @@ class GateModule(torch.nn.Module):
 
 class MainModule(torch.nn.Module):
     
-    def __init__(self,images=4,ndim=3,layers=None,kern=3,use_gates=False,inter_ch=16,empty=False):
+    def __init__(self,images=4,ndim=3,layers=None,kern=3,use_gates=True,inter_ch=16,empty=False):
         super().__init__()
         if(kern%2!=1):
             raise "kernel size must be odd for padding to be able to kee pit constant"
@@ -122,7 +122,7 @@ from camera_utils import best_split_camera,downsize_camera,pad_camera,unpad_tens
 class trainer():
     def __init__(self,data:dataSet.DataSet,**options) -> None:
         self.nn = MainModule(**options).cuda()
-        self.pad = int(options['start_padding']) if 'start_padding' in options else 2**self.nn.required_subplots()
+        self.pad = int(options['start_padding']) if 'start_padding' in options else int(2**self.nn.required_subplots())
         self.optim = torch.optim.Adam([*self.nn.parameters(),*data.parameters()])
         self.data=data
         #TODO: split into train and validation. Maybe later.
@@ -145,7 +145,7 @@ class trainer():
     def train_diff(self,rez:torch.Tensor,target:torch.Tensor):
         rgb_target=target[::,::,:3:]
         alpha_target=target[::,::,:-1:]
-        print(rgb_target.size(),alpha_target.size())
+        #print(rgb_target.size(),alpha_target.size())
         return torch.nn.functional.smooth_l1_loss(rez*alpha_target,rgb_target*alpha_target)
       
     def _train_one_unsafe(self,scene_id,cam_type,cameras:list[list[list[float]]],target):

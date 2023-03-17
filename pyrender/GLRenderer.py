@@ -4,7 +4,6 @@ import struct
 import numpy as np
 from itertools import chain
 import torch
-import kernelItf
 NULL = gl.ctypes.c_void_p(0)
 
 #TODO: make this function do nothing once you know OpenGL won't give you trouble
