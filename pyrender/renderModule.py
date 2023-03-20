@@ -4,6 +4,7 @@ import kernelItf as kern
 class renderFunctionSingle(torch.autograd.Function):
     @staticmethod
     def forward(ctx,cam_type:int,camera,points,environment):
+        #camera=list(map(float,camera))#Some components might be tensors and for some reason that breaks things
         plot,weights = kern.plotSinglePointsToTensor(cam_type,camera,points,environment)
         ctx.save_for_backward([weights,camera,points,environment,plot])
         return plot

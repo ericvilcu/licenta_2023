@@ -7,24 +7,28 @@ from pycuda.compiler import SourceModule
 import pycuda
 import math
 
-#NOTE: the import below overrides the torch's CUDA environment and causes errors.
-#import pycuda.autoinit as cuda_context 
-#We do this instead, but note that torch has to be imported beforehand either from this file or another.
-drv.init()
-cuda_context = drv.Device(0).retain_primary_context()
-cuda_context.push()
 
 max_threads=int(256)
 line_max_threads=(max_threads,int(1),int(1))
 square_max_thread_size: tuple[int, int, int] = (*map(int,2*[math.sqrt(max_threads)]+[1]),)
-def init_thread_data():
+cuda_context=None
+def initialize():
+    global max_threads,line_max_threads,square_max_thread_size,cuda_context
+    
+    #NOTE: the import below overrides the torch's CUDA environment and causes errors.
+    #import pycuda.autoinit as cuda_context 
+    #We do this instead, but note that torch has to be imported beforehand either from this file or another.
+    drv.init()
+    cuda_context = drv.Device(0).retain_primary_context()
+    cuda_context.push()
+    
+
     device = drv.Device(0)
     device_data= device.get_attributes()
-    global max_threads,line_max_threads,square_max_thread_size
+    
     max_threads=int(device_data[pycuda._driver.device_attribute.MAX_THREADS_PER_BLOCK])
     line_max_threads=(max_threads,1,1)
     square_max_thread_size = (*map(int,2*[math.sqrt(max_threads)]+[1]),)
-init_thread_data()
 
 def ASSERT_DRV(err):
     if isinstance(err, cuda.CUresult):
@@ -85,10 +89,13 @@ def plotSinglePointsToTensor(cam_type:int,cam_data:(torch.Tensor or list[float])
     ndim=points.shape[-1]-3
     w,h=map(int,cam_data[2:4])
     if(type(cam_data)==list):
-        gpu_cam_data=torch.tensor(cam_data).cuda()
+        gpu_cam_data=torch.tensor(cam_data).to(torch.float32).cuda().contiguous()
     else:
-        gpu_cam_data=cam_data.clone().detach().cuda()
+        gpu_cam_data=cam_data.clone().detach().to(torch.float32).cuda().contiguous()
     num_points = points.shape[0]
+    
+    assert(points.is_contiguous())
+    assert(env.is_contiguous())
     
     module_name=f"plot CAM_TYPE={cam_type} NDIM={ndim}"
     plot_points = get_kernel(module_name,"plot")
@@ -133,3 +140,5 @@ def plotSinglePointsBackwardsToTensor(*args):
     #TODO
     return None,None,None
 
+def cleanup():
+    cuda_context.pop()

@@ -1,6 +1,7 @@
 import torch
 import os
 import customSer
+import shutil
 class learnableData(torch.nn.Module):
     def __init__(self,fn:str=None,points:torch.Tensor=None,env:torch.Tensor=None) -> None:
         super().__init__()
@@ -18,6 +19,12 @@ class learnableData(torch.nn.Module):
         else:
             self.points = points
             self.environment = env
+    def save(self,path):
+        points_path=os.path.join(path,"points.bin")
+        environment_path=os.path.join(path,"environment.bin")
+        customSer.to_bin(self.points,points_path)
+        customSer.to_bin(self.environment,environment_path)
+        
 
 class Scene(torch.nn.Module):
     def __init__(self,fn:str=None,points:torch.Tensor=None,env:torch.Tensor=None) -> None:
@@ -27,12 +34,23 @@ class Scene(torch.nn.Module):
             self.path=fn
         else:
             self.data = learnableData(points=points,env=env)
-            self.points = points
-            self.env = env
             self.path=None
+    def save(self,path,keepImages=True):
+        self.data.save(path)
+        if(self.path!=None and keepImages):
+            images_path=os.path.join(path,"train_images")
+            if(not os.path.isdir(images_path)):
+                if(os.path.exists(images_path)):
+                    raise Exception(f"Path {images_path} is invalid")
+                os.mkdir(images_path)
+            old_images_dir=os.path.join(self.path,"train_images")
+            for i in os.listdir(old_images_dir):
+                shutil.copy(os.path.join(old_images_dir,i),images_path)
+        
+
 
 class DataSet(torch.nn.Module):
-    def __init__(self,modules:list=None,scenes:list[str]=None) -> None:
+    def __init__(self,modules:list[Scene]=None,scenes:list[str]=None) -> None:
         super().__init__()
         if(modules!=None):
             self.scenes = modules
@@ -40,6 +58,23 @@ class DataSet(torch.nn.Module):
             self.scenes = list(map(lambda path:Scene(fn=path),scenes))
         for i,scene in enumerate(self.scenes):self.register_module(f"scene{i}",scene)
         self.trainImages=TrainImages(self)
+    def save_to(self,path:str):
+        for idx,scene in enumerate(self.scenes):
+            scene_dir=os.path.join(path,str(idx))
+            if(not os.path.isdir(scene_dir)):
+                if(os.path.exists(scene_dir)):
+                    raise Exception(f"Path {scene_dir} is invalid")
+                os.mkdir(scene_dir)
+            scene.save(scene_dir)
+    @staticmethod
+    def load(path:str):
+        scenes=[]
+        i=0
+        while(True):
+            if(os.path.isdir(os.path.join(path,str(i)))): scenes.append(os.path.join(path,str(i)))
+            else: break
+            i+=1
+        return DataSet(scenes=scenes)
 
 from torch.utils.data import Dataset
 import struct
@@ -76,11 +111,18 @@ class TrainImages(Dataset):
                 cam_type:int
                 cam_type,w0,h0,w,h=read_bytes('IIIII',f)
                 rot=read_bytes('f'*9,f)
+                rot=(rot[0],rot[1],rot[2],
+                            rot[3],rot[4],rot[5],
+                            rot[6],rot[7],rot[8])
                 trans=read_bytes('f'*3,f)
+                trans=(trans[0],trans[1],trans[2])
+                
+                
                 if(cam_type == 0):
-                    #NOTE: fx,fy,ppx,ppy
-                    extra=read_bytes('f'*4,f)
-                    pass
+                    #NOTE: ppx,ppy,fx,fy
+                    ppy,ppx,fx,fy=read_bytes('f'*4,f)
+                    extra=[ppx,ppy,fx,fy]
+                    
                 else:raise Exception("Unknown camera type")
                 cam=list(map(float,[w0,h0,w,h,*rot,*trans,*extra]))
                 image_data=bytearray(f.read())

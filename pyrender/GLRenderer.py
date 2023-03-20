@@ -116,10 +116,10 @@ class Renderer():
                 pos=self.views[view][2]
                 old_coords=self.views[view][3]
                 new_coords=(
-                    pos[0] * w,
-                    pos[1] * h,
-                    (pos[2]-pos[0]) * w,
-                    (pos[3]-pos[1]) * h,
+                    int(pos[0]*w),
+                    int(pos[1]*h),
+                    int(pos[2]*w)-int(pos[0]*w),
+                    int(pos[3]*h)-int(pos[1]*h),
                 )
                 new_size = (new_coords[2]-new_coords[0],new_coords[3]-new_coords[1])
                 self.views[view][3]=new_coords
@@ -177,7 +177,7 @@ class Renderer():
             raise Exception(f"{rgb.dtype} does not have a protocol.")
         rgb=rgb[::,::,:3:]
         
-        w,h,*unused=rgb.size()
+        h,w,*unused=rgb.size()
         
         rgb_cpu=rgb.cpu().reshape((rgb.numel(),)).contiguous()
         #This is by far the slowest thing.

@@ -41,8 +41,9 @@ def patchImages(cameras_txt,images_txt,custom_bin_image_folder,overwrite=False,i
         img_id=img[0]
         #quaternions;-;
         QW, QX, QY, QZ, TX, TY, TZ= map(float,img[1:-2])
+        #In colmap, quaternions are based on the hamilton convention https://fzheng.me/2017/11/12/quaternion_conventions_en/
         rot:Rotation = Rotation.from_quat([QW,QZ,QY,QX,])#This is the one that makes the image align. I do not know why. Perhaps someone with more knowledge of quaternions would help.
-        rotation_mat = np.array(rot.as_matrix())
+        rotation_mat = -np.array(rot.as_matrix()).transpose()
         #I honestly have no clue what is going on here. It is just the formula that seems to lead to the correct results and the plot aligning with the camera.
         #I can only blame my poor understanding of quaternions and the systems around them.
         #I think I know what I'm doing here now. I'm inverting the matrix in a really convoluted way because it is a matrix meant to be multiplied to the left, and I'm multiplying it to the right.
@@ -52,7 +53,9 @@ def patchImages(cameras_txt,images_txt,custom_bin_image_folder,overwrite=False,i
         #translation=-np.array([translation[0],translation[1],translation[2]])        
         #rotation_mat = -rotation_mat.transpose()
         #translation = np.matmul(rotation_mat,translation)
+        #according to https://colmap.github.io/format.html#images-txt, translation is on the camera coordinate system.
         translation = np.array([TX,TY,-TZ])
+        translation = -np.matmul(rotation_mat,translation)
         
         if PN>0:
             print(img)

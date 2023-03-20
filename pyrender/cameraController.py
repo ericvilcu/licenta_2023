@@ -8,7 +8,7 @@ class CameraController():
     def __init__(self) -> None:
         self.key_state=[0]*8
         self.mouse_state=[0]*3
-        self.CW,self.CH=300.,300.
+        self.CW,self.CH=1241.0, 376.0#300.,300.
         self.needs_rebuild=True
         self.camera=[0.]
         self.ypr=[0.]*3
@@ -25,36 +25,33 @@ class CameraController():
         #uses the same method used at http://msl.cs.uiuc.edu/planning/node102.html , just multiplying several matrices together.
         
         #If multiplying to the right
-        rotation[0][0] = float(cos(y))
-        rotation[0][1] = float(0)
-        rotation[0][2] = float(-sin(y))
-        rotation[1][0] = float(sin(p) *-sin(y))
-        rotation[1][1] = float(cos(p))
-        rotation[1][2] = float(-sin(p)* cos(y))
-        rotation[2][0] = float(cos(p) * sin(y))
-        rotation[2][1] = float(sin(p))
-        rotation[2][2] = float(cos(p) * cos(y))
+        # rotation[0][0] = float(cos(y))
+        # rotation[0][1] = float(0)
+        # rotation[0][2] = float(-sin(y))
+        # rotation[1][0] = float(sin(p) *-sin(y))
+        # rotation[1][1] = float(cos(p))
+        # rotation[1][2] = float(-sin(p)* cos(y))
+        # rotation[2][0] = float(cos(p) * sin(y))
+        # rotation[2][1] = float(sin(p))
+        # rotation[2][2] = float(cos(p) * cos(y))
         
         #If multiplying to the left
-        # rotation[0][0] = float(cos(y))
-        # rotation[0][1] = float(sin(y) * sin(p))
-        # rotation[0][2] = float(sin(y) * cos(p))
-        # rotation[1][0] = float(0)
-        # rotation[1][1] = float(cos(p))
-        # rotation[1][2] = float(-sin(p))
-        # rotation[2][0] = float(-sin(y))
-        # rotation[2][1] = float(sin(p) * cos(y))
-        # rotation[2][2] = float(cos(y) * cos(p))
+        rotation[0][0] = float(cos(y))
+        rotation[0][1] = float(sin(y) * sin(p))
+        rotation[0][2] = float(sin(y) * cos(p))
+        rotation[1][0] = float(0)
+        rotation[1][1] = float(cos(p))
+        rotation[1][2] = float(-sin(p))
+        rotation[2][0] = float(-sin(y))
+        rotation[2][1] = float(sin(p) * cos(y))
+        rotation[2][2] = float(cos(y) * cos(p))
         return rotation
     
     def rebuild_camera(self):
         self.needs_rebuild=False
         rotation:chain[float] = chain(*self.rotation_from(*self.ypr))
-        af=math.atan(self.fov/180*math.pi)
-        self.camera=[0.,0.,self.CW,self.CH,*rotation,*self.position,self.CW/2,self.CH/2,self.CW/2,self.CH/2]#*(2+9+3+4)
-    
-    def multiply_with_rotation():
-        pass
+        #af=math.atan(self.fov/180*math.pi)
+        self.camera=[0.,0.,self.CW,self.CH,*rotation,*self.position,self.CW/2,self.CH/2,700.,700.]#self.CW/2,self.CH/2]#*(2+9+3+4)
     
     def process_sdl_events(self,events:list[sdl_events.SDL_Event],delta:float=1/60):
         for event in events:#These if chains are quite slow. note that this is going to be basically called every frame.
@@ -66,9 +63,9 @@ class CameraController():
                     self.mouse_state[0]=0
             elif(event.type==sdl_events.SDL_MOUSEMOTION):
                 if(self.mouse_state[0]==1):
-                    sensitivity=1e-3
+                    sensitivity=5e-3
                     self.ypr[0]=(self.ypr[0]-event.motion.xrel*sensitivity)%(2*math.pi)
-                    self.ypr[1]=clamp(self.ypr[1]-event.motion.yrel*sensitivity,-math.pi*0.9,math.pi*0.9)
+                    self.ypr[1]=clamp(self.ypr[1]+event.motion.yrel*sensitivity,-math.pi*0.9,math.pi*0.9)
                     self.needs_rebuild=True
             elif(event.type==sdl_events.SDL_KEYDOWN or event.type==sdl_events.SDL_KEYUP):
                 keysym:sdl_events.SDL_Keysym=event.key.keysym
@@ -100,7 +97,7 @@ class CameraController():
             motion=(delta*-motion[1],0.,delta*-motion[0])
             
             motion: tuple[float,float,float]=tuple(
-                sum(motion[i]*rot[j+3*i] for i in range(3)) for j in range(3)
+                sum(motion[i]*rot[i+3*j] for i in range(3)) for j in range(3)
             )
             for i in range(3):
                 self.position[i]+=motion[i]

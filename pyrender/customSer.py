@@ -1,6 +1,5 @@
-#simple serialization
+#simple serialization for tensors
 import torch
-import numpy as np
 import struct
 from functools import reduce
 def from_text(fn:str):
@@ -13,6 +12,16 @@ def from_text(fn:str):
             (data.append(x) for x in list(map(float,l.strip().split(' '))))
         r=torch.tensor(l)
         return r.cuda().reshape(dims)
+
+def to_text(t:torch.Tensor,fn:str):
+    with open(fn,"w") as f:
+        dims=t.size()
+        f.write(str(len(dims))+' ')
+        for dim in dims:
+            f.write(str(dim)+' ')
+        f.write('\n')
+        for item in t.cpu().reshape(t.numel()):
+            f.write(str(item)+' ')
 
 def from_bin(fn:str):
     with open(fn,"rb") as f:
@@ -27,5 +36,14 @@ def from_bin(fn:str):
         mul=ret.numel()//expected
         if(mul>1):dims=(mul,*dims)
         return ret.cuda().reshape(dims)
+
+def to_bin(t:torch.Tensor,fn:str):
+    with open(fn,"wb") as f:
+        dims=t.size()
+        f.write(struct.pack("q",len(dims)))
+        f.write(struct.pack("q"*len(dims),*dims))
+        f.write(t.cpu().numpy().tobytes())
+        
+        
         
         
