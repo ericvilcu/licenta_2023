@@ -49,7 +49,7 @@ def best_split_camera(camera,MAX_PIXELS_PER_PLOT,expected_pad=0):
         row=[]
         for j in range(hm): 
             cpy=[float(i) for i in camera]
-            w0,h0,w1,h1=(W0+(i)//wm*H),(H0+(i)//hm*H),(W0+(i+1)//wm*W),(H0+(i+1)//hm*H)
+            w0,h0,w1,h1=(W0+(i)*H//wm),(H0+(j)*H//hm),(W0+(i+1)*W//wm),(H0+(j+1)*H//hm)
             w,h=w1-w0,h1-h0
             cpy[0]=w0
             cpy[1]=h0

@@ -65,7 +65,7 @@ class CameraController():
                 if(self.mouse_state[0]==1):
                     sensitivity=5e-3
                     self.ypr[0]=(self.ypr[0]-event.motion.xrel*sensitivity)%(2*math.pi)
-                    self.ypr[1]=clamp(self.ypr[1]+event.motion.yrel*sensitivity,-math.pi*0.9,math.pi*0.9)
+                    self.ypr[1]=clamp(self.ypr[1]+event.motion.yrel*sensitivity,-math.pi*0.49,math.pi*0.49)
                     self.needs_rebuild=True
             elif(event.type==sdl_events.SDL_KEYDOWN or event.type==sdl_events.SDL_KEYUP):
                 keysym:sdl_events.SDL_Keysym=event.key.keysym

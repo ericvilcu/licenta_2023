@@ -4,7 +4,35 @@ from renderModule import renderFunctionSingle
 import GLRenderer
 from utility import spin_iter
 from threading import Thread
+import math
+from torchmetrics.image.psnr import PeakSignalNoiseRatio
+from torchmetrics.image.ssim import StructuralSimilarityIndexMeasure
+from torchmetrics.image.lpip import LearnedPerceptualImagePatchSimilarity
 import os
+
+psnr_module=PeakSignalNoiseRatio().cuda()
+ssim_module=StructuralSimilarityIndexMeasure().cuda()
+lpips_module=LearnedPerceptualImagePatchSimilarity().cuda()
+
+TOTAL_BATCHES_THIS_RUN=0
+
+def make_ch_first(x:torch.Tensor):
+    return x.transpose(-3, -1).transpose(-2, -1)
+
+def make_ch_last(x:torch.Tensor):
+    return x.transpose(-2, -1).transpose(-3, -1)
+
+def norm(x:torch.Tensor):
+    return x.clamp(-1,1)
+    
+loss_functions={
+    "l1":torch.nn.functional.l1_loss,
+    "psnr":lambda src,target:psnr_module(make_ch_first(src),make_ch_first(target)),
+    "ssim":lambda src,target:ssim_module(make_ch_first(src)[None,:],make_ch_first(target)[None,:]),
+    "lpips":lambda src,target:lpips_module(norm(make_ch_first(src)[None]),make_ch_first(target)[None]),
+}
+
+
 
 def error_test():
     #An error recommended I try this to check for some error.
@@ -32,9 +60,9 @@ class GateModule(torch.nn.Module):
     def __init__(self,in_channels,out_channels,kernel_size=(3,3),padding=1,single_gate=True,**kwargs):
         super().__init__()
         self.main=torch.nn.Conv2d(in_channels,out_channels,kernel_size=kernel_size,padding=padding,**kwargs)
-        self.register_module("main",self.main)
+        #self.register_module("main",self.main)
         self.gate=torch.nn.Conv2d(in_channels,1 if single_gate else out_channels,kernel_size=kernel_size,padding=padding,**kwargs)
-        self.register_module("gate",self.gate)
+        #self.register_module("gate",self.gate)
     def forward(self,tsr:torch.Tensor)->torch.Tensor:
         return torch.nn.functional.elu(self.main(tsr))*torch.sigmoid(self.gate(tsr))
 
@@ -48,7 +76,7 @@ class MainModule(torch.nn.Module):
             raise "kernel size must be odd for padding to be able to kee pit constant"
         self.norm = torch.nn.ELU() if not use_gates else torch.nn.Identity()
         if layers==None: layers= 1 if use_gates else 2
-        self.register_module("norm", self.norm)
+        #self.register_module("norm", self.norm)
         padding=(kern-1)//2
         last_in=0
         self.in_layers=[];self.out_layers=[]
@@ -60,11 +88,12 @@ class MainModule(torch.nn.Module):
                     mdl= torch.nn.Conv2d(last_in,inter_ch,kernel_size=(kern,kern),padding=padding)
                 else:
                     mdl=  GateModule(last_in,inter_ch,kernel_size=(kern,kern),padding=padding)
-                self.register_module(f"in{i}_{j}",mdl)
+                #self.register_module(f"in{i}_{j}",mdl)
                 l.append(mdl)
                 last_in=inter_ch
             self.in_layers.append(l)
         last_in=0
+        self.in_layers=torch.nn.ModuleList(torch.nn.ModuleList(layer) for layer in self.in_layers)
         for i in range(subplots):
             l=[]
             last_in+=ndim+1+inter_ch
@@ -73,15 +102,16 @@ class MainModule(torch.nn.Module):
                     mdl= torch.nn.Conv2d(last_in,inter_ch,kernel_size=(kern,kern),padding=padding)
                 else:
                     mdl=  GateModule(last_in,inter_ch,kernel_size=(kern,kern),padding=padding)
-                self.register_module(f"out{i}_{j}",mdl)
+                #self.register_module(f"out{i}_{j}",mdl)
                 l.append(mdl)
                 last_in=inter_ch
             self.out_layers.append(l)
             last_in=16
-        self.final=torch.nn.Conv2d(last_in,3,kernel_size=(kern,kern),padding=padding)
-        self.register_module("final", self.final)
+        self.out_layers=torch.nn.ModuleList(torch.nn.ModuleList(layer) for layer in self.out_layers)
+        self.final=torch.nn.Conv2d(last_in+ndim+1,3,kernel_size=(1,1),padding=0)
+        #self.register_module("final", self.final)
         self.downsampler=torch.nn.AvgPool2d((2,2),stride=2)
-        self.register_module("downsampler", self.downsampler)
+        #self.register_module("downsampler", self.downsampler)
     
     def required_subplots(self):
         return len(self.in_layers)
@@ -117,7 +147,8 @@ class MainModule(torch.nn.Module):
                 img = self.norm(conv(img))
             prev = img
 
-        prev = self.final(prev)
+        #print([*self.final.parameters()][0][0][0],[*self.final.parameters()][1])
+        prev = self.final( torch.cat([img,imgs[0].transpose(-3, -1).transpose(-2, -1)]) )
         #Now un-transpose it.
         return prev.transpose(-2,-1).transpose(-3,-1)
 
@@ -137,7 +168,7 @@ class trainer():
         self.test_dataloader_iter = spin_iter(self.test_dataloader)
         
         self.batch_size = int(options['batch_size']) if 'batch_size' in options else len(self.test_dataloader)
-        self.report_loss=0.
+        self.report_losses={}
         self.report_batches=0
     
     def save(self,path:str):
@@ -151,7 +182,7 @@ class trainer():
                 raise Exception(f"Path {data_path} is invalid.")
             os.mkdir(data_path)
         torch.save(self.nn,os.path.join(path,"model"))
-        torch.save(self.optim,os.path.join(path,"optim"))
+        torch.save({"optim":self.optim.state_dict()},os.path.join(path,"optim"))
         
         self.data.save_to(data_path)
         
@@ -160,7 +191,11 @@ class trainer():
     def load(path:str,args:dict):
         data_path=os.path.join(path,"data")
         data=dataSet.DataSet.load(data_path)
-        t=trainer(data=data,nn=torch.load(os.path.join(path,"model")),optim=torch.load(os.path.join(path,"optim")),**args,empty=True)
+        nn:MainModule=torch.load(os.path.join(path,"model"))
+        optim=torch.optim.Adam([*nn.parameters(),*data.parameters()])
+        optim.load_state_dict(torch.load(os.path.join(path,"optim"))['optim'])
+        optim.zero_grad()
+        t=trainer(data=data,nn=nn,optim=optim,**args,empty=True)
         return t
         
         
@@ -175,20 +210,15 @@ class trainer():
             plots.append(renderFunctionSingle.apply(cam_type,cam_data,points,environment))
             cam_data=downsize_camera(cam_type,cam_data)
         return plots
-    i=1000
-    def train_diff(self,rez:torch.Tensor,target:torch.Tensor):
+    def train_diff(self,rez:torch.Tensor,target:torch.Tensor,multiplier:float=1):
         rgb_target=target[::,::,:3:]
         alpha_target=target[::,::,-1::]
-        if(trainer.i==0):
-            trainer.i=1000
-            print(*map(float,(rgb_target.mean(),rgb_target.max(),rgb_target.min())))
-            print(*map(float,(rez.mean(),rez.max(),rez.min())))
-        else:trainer.i-=1
-        return torch.nn.functional.smooth_l1_loss(rez*alpha_target,rgb_target*alpha_target)
+        real_src,real_target=rez*alpha_target,rgb_target*alpha_target
+        return {i:loss_functions[i](real_src,real_target)/self.batch_size for i in loss_functions}
       
     def _train_one_unsafe(self,scene_id,cam_type,cameras:list[list[list[float]]],target):
         subplots=self.nn.required_subplots()
-        total_diff=0.0
+        total_diff={name:0 for name in loss_functions}
         for row in cameras:
             for cell in row:
                 camera=cell
@@ -198,9 +228,11 @@ class trainer():
                 rez=unpad_tensor(rez,self.pad)
                 
         
-                diff=self.train_diff(rez,tensor_subsection(target,camera))
-                total_diff+=float(diff)
-                diff.backward()
+                diff=self.train_diff(rez,tensor_subsection(target,camera),1/(len(cameras)*len(row)))
+                for name in loss_functions:
+                    total_diff[name]+=float(diff[name])
+                diff['l1'].backward()
+                diff={}
         return total_diff
 
     
@@ -210,7 +242,7 @@ class trainer():
     
     def train_one_batch(self):
         try:
-            diff=0
+            diff={name:0 for name in loss_functions}
             for i in range(self.batch_size):
                 scene_id,cam_type,camera,target,=next(iter(self.train_dataloader))
                 target=torch.squeeze(target,0)
@@ -221,7 +253,10 @@ class trainer():
                 else:
                     cams=[[camera]]
                 
-                diff+=self._train_one_unsafe(scene_id,cam_type,cams,target)
+                local_diff=self._train_one_unsafe(scene_id,cam_type,cams,target)
+                for name in loss_functions:
+                    diff[name]+=float(local_diff[name])
+                local_diff={}
                 #TODO: also implement batches
             self.optim.step()
         except Exception as e:
@@ -234,8 +269,14 @@ class trainer():
             else:raise e
             if(self.MAX_PIXELS_PER_PLOT<4*self.pad*self.pad):raise Exception("MAX_PIXELS_PER_PLOT decreased too much. Your neural network might be too big to fit in your GPU memory")
         self.optim.zero_grad()
-        self.report_loss+=diff
+        for name in diff:
+            if name in self.report_losses:
+                self.report_losses[name]+=diff[name]
+            else:
+                self.report_losses[name]=diff[name]
         self.report_batches+=1
+        global TOTAL_BATCHES_THIS_RUN
+        TOTAL_BATCHES_THIS_RUN+=1
     
     def example(self):
         try:
@@ -258,12 +299,13 @@ class trainer():
         cam_type=int(cam_type)
         #TODO: ensure plot does not crash due to image size.
         plots=self.draw_subplots(scene_id,cam_type,camera,self.nn.required_subplots())
-        r.upload_tensor(points_view,plots[1])
+        r.upload_tensor(points_view,plots[0])
         result = self.nn.forward(plots)
         r.upload_tensor(target_view,target)
         r.upload_tensor(result_view,result)
     
     def start_trainer_thread(self):
+        assert('tt' not in dir(self))
         self.tt = trainer_thread(self)
         self.tt.start()
         
@@ -273,20 +315,28 @@ class trainer():
         del self.tt
 import kernelItf
 class trainer_thread(Thread):
-    def __init__(self,parent) -> None:
+    def __init__(self,parent,report_freq=60) -> None:
         super().__init__()
         self.should_stop_training=False
+        self.report_freq=report_freq
         self.parent:trainer=parent
-    def run(self):#TODO? reports on loss
+    def run(self):
         from time import time
-        report_freq=30
+        self.parent.nn.train()
+        self.parent.data.train()
         kernelItf.initialize()
         last_report=s=time()
         while(not self.should_stop_training):
             self.parent.train_one_batch()
             e=time()
-            if(e-last_report>report_freq):
-                print(f"Report: average loss is {self.parent.report_loss/self.parent.report_batches} in {self.parent.report_batches} batches")
+            if(e-last_report>self.report_freq and self.parent.report_batches>0):
+                l={loss:float(self.parent.report_losses[loss]/self.parent.report_batches) for loss in self.parent.report_losses}
+                print(f"Report: average loss is {l} in {self.parent.report_batches} batches")
+                dt=e=s
+                print(f"Runtime={int(dt)//3600:01d}:{(int(dt)//60)%60:01d}:{int(dt%60):01d}.{str(math.fmod(dt,1))[2:]}")
+                l={}
                 last_report=e
+                self.parent.report_losses={}
+                self.parent.report_batches=0
                 
         kernelItf.cleanup()

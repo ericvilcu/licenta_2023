@@ -18,7 +18,7 @@ import sdl2
 
 def make_workspace():
     print(f"loading dataset from scenes={set(args.scenes)}")
-    ds = DataSet(scenes=args.scenes)
+    ds = DataSet(scenes=args.scenes,force_ndim=args.ndim)
     t=trainer.trainer(ds,**args.nn_args)
     print(f"saving workspace to {args.workspace}")
     t.save(args.workspace)
@@ -45,7 +45,6 @@ r.createView('render'     ,.5,.5,1.,1.,0,True)
 s=e=time()
 
 pm=renderModule()
-t=trainer.trainer(ds,**args.nn_args)
 pm.to('cuda')
 last_test_result=time()-args.example_interval
 controller=cameraController.CameraController()
@@ -58,7 +57,7 @@ kernelItf.initialize()
 if(args.train):
     t.start_trainer_thread()
 try:
-    while(e-s<900):
+    while((not args.timeout or e-s<args.timeout_s) and (args.max_batches<0 or trainer.TOTAL_BATCHES_THIS_RUN<=args.max_batches)):
         ne=time()
         delta=ne-e
         e=ne
@@ -77,18 +76,16 @@ try:
         ev=r.update()
         #TODO:autosave-check
         
-        for e1 in ev:
-            if(e1.type == sdl2.events.SDL_QUIT):
-                print("Quitting manually...")
-                s=e-1e9
+        if(len([e1 for e1 in ev if(e1.type == sdl2.events.SDL_QUIT)])>0):
+            print("Quitting manually...")
+            break
 
 except KeyboardInterrupt as ex:
     print(ex)
     print("KeyboardInterrupt detected, stopping and saving...")
-    s=e-1e9
 finally:
     
-    #TODO:save model
+    t.save(args.workspace)
     
     if(args.train):
         t.stop_trainer_thread()

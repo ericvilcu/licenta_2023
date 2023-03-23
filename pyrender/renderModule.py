@@ -9,9 +9,9 @@ class renderFunctionSingle(torch.autograd.Function):
         ctx.save_for_backward([weights,camera,points,environment,plot])
         return plot
     @staticmethod
-    def backward(ctx):
+    def backward(ctx,plot_grad):
         weights,camera,points,environment,plot = ctx.saved_tensors
-        camera_grad,points_grad,environment_grad=kern.plotSinglePointsBackwardsToTensor(weights,camera,points,environment,plot)
+        camera_grad,points_grad,environment_grad=kern.plotSinglePointsBackwardsToTensor(weights,camera,points,environment,plot,plot_grad)
         return None,camera_grad,points_grad,environment_grad
 
 #Now irrelevant?

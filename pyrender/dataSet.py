@@ -2,23 +2,49 @@ import torch
 import os
 import customSer
 import shutil
+import args
 class learnableData(torch.nn.Module):
-    def __init__(self,fn:str=None,points:torch.Tensor=None,env:torch.Tensor=None) -> None:
+    def __init__(self,fn:str=None,points:torch.Tensor=None,env:torch.Tensor=None,force_ndim=None) -> None:
         super().__init__()
         if(fn!=None):
             if(os.path.exists(fn+"/points.txt")):
-                self.points = customSer.from_text(fn+"/points.txt")
-                self.environment = customSer.from_text(fn+"/environment.txt")
+                points = customSer.from_text(fn+"/points.txt")
+                environment = customSer.from_text(fn+"/environment.txt")
             elif(os.path.exists(fn+"/points.bin")):
-                self.points = customSer.from_bin(fn+"/points.bin")
-                self.environment = customSer.from_bin(fn+"/environment.bin")
+                points = customSer.from_bin(fn+"/points.bin")
+                environment = customSer.from_bin(fn+"/environment.bin")
             elif(os.path.exists(fn+"/points")):
-                self.points = torch.load(fn+"/points")
-                self.environment = torch.load(fn+"/environment")
+                points = torch.load(fn+"/points")
+                environment = torch.load(fn+"/environment")
             else: raise Exception("dataset location was invalid")
         else:
-            self.points = points
-            self.environment = env
+            points = points
+            environment = env
+        if(force_ndim!=None):
+            ndim=len(points[0])-3
+            if(ndim>force_ndim):
+                #trunc
+                trunc=ndim-force_ndim
+                points=points[::,:-trunc:]
+                environment=points[::,::,::,:-trunc:]
+            elif(force_ndim>ndim):
+                extra=force_ndim-ndim
+                ps=list(points.shape)
+                ps[-1]=extra
+                append_points=torch.randn(*ps,device='cuda')
+                points: torch.Tensor=torch.cat((points,append_points),-1)
+                append_points=None
+                points=points.contiguous()
+                
+                es=list(environment.shape)
+                es[-1]=extra
+                append_environment=torch.randn(*es,device='cuda')
+                environment: torch.Tensor=torch.cat((environment,append_environment),-1)
+                append_environment=None
+                environment=environment.contiguous()
+        self.register_buffer("environment",environment)
+        self.register_buffer("points",points)
+        
     def save(self,path):
         points_path=os.path.join(path,"points.bin")
         environment_path=os.path.join(path,"environment.bin")
@@ -27,17 +53,17 @@ class learnableData(torch.nn.Module):
         
 
 class Scene(torch.nn.Module):
-    def __init__(self,fn:str=None,points:torch.Tensor=None,env:torch.Tensor=None) -> None:
+    def __init__(self,fn:str=None,points:torch.Tensor=None,env:torch.Tensor=None,force_ndim=None) -> None:
         super().__init__()
         if(fn!=None):
-            self.data = learnableData(fn=fn)
+            self.data = learnableData(fn=fn,force_ndim=force_ndim)
             self.path=fn
         else:
-            self.data = learnableData(points=points,env=env)
+            self.data = learnableData(points=points,env=env,force_ndim=force_ndim)
             self.path=None
     def save(self,path,keepImages=True):
         self.data.save(path)
-        if(self.path!=None and keepImages):
+        if(self.path!=None and keepImages and self.path!=path):
             images_path=os.path.join(path,"train_images")
             if(not os.path.isdir(images_path)):
                 if(os.path.exists(images_path)):
@@ -50,12 +76,12 @@ class Scene(torch.nn.Module):
 
 
 class DataSet(torch.nn.Module):
-    def __init__(self,modules:list[Scene]=None,scenes:list[str]=None) -> None:
+    def __init__(self,modules:list[Scene]=None,scenes:list[str]=None,force_ndim=None) -> None:
         super().__init__()
         if(modules!=None):
             self.scenes = modules
         else:
-            self.scenes = list(map(lambda path:Scene(fn=path),scenes))
+            self.scenes = list(map(lambda path:Scene(fn=path,force_ndim=force_ndim),scenes))
         for i,scene in enumerate(self.scenes):self.register_module(f"scene{i}",scene)
         self.trainImages=TrainImages(self)
     def save_to(self,path:str):

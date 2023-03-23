@@ -6,7 +6,7 @@ import pycuda.driver as drv
 from pycuda.compiler import SourceModule
 import pycuda
 import math
-
+import args
 
 max_threads=int(256)
 line_max_threads=(max_threads,int(1),int(1))
@@ -52,30 +52,49 @@ def assemble_source(m:str):
     src = macros+open(f"cuda_kernels/cameras.cuh").read()+'\n'+open(f"cuda_kernels/{d[0]}.cu").read()
     return src
 from pycuda._driver import Function as pyf
+import threading
+COMPILE_LOCK=threading.Lock()
+VIEW_LOCK=threading.Lock()
+#Due to the mutexes, this function is an absolute mess.
 def get_kernel(m:str,f:str) -> pyf:
-    global constructed_modules
-    if m in constructed_modules:
-        return constructed_modules[m].get_function(f)
-    else:
-        #TODO? caching?
-        print(f"COMPILING CUDA MODULE \"{m}\"")
-        #JIT
-        src=assemble_source(m)
-        try:
-            mod = SourceModule(
-                src
-            )
-        except Exception as e:
-            #.vscode/ is an ok place to hide them.
-            print("Cuda compilation errors occurred. dumped kernel.cu and errors.txt in ./.vscode/")
-            with open(".vscode/kernel.cu","w") as ff:
-                ff.write(src)
-            with open(".vscode/errors.txt","w") as ff:
-                ff.write(str(e))
-            raise e
-        constructed_modules[m]=mod
-        fun = mod.get_function(f)
-        return fun
+    try:
+        VIEW_LOCK.acquire()
+        has_view_lock=True
+        global constructed_modules
+        if m in constructed_modules:
+            return constructed_modules[m][0].get_function(f)
+        else:
+            try:
+                VIEW_LOCK.release()
+                has_view_lock=False
+                COMPILE_LOCK.acquire()#Makes sure kernels are not compiled any more than once
+                if m in constructed_modules:
+                    return constructed_modules[m][0].get_function(f)
+                #TODO? caching?
+                print(f"COMPILING CUDA MODULE \"{m}\"")
+                #JIT
+                src=assemble_source(m)
+                try:
+                    mod = SourceModule(
+                        src
+                    )
+                except Exception as e:
+                    #.vscode/ is an ok place to hide them.
+                    print("Cuda compilation errors occurred. dumped kernel.cu and errors.txt in ./.vscode/")
+                    with open(".vscode/kernel.cu","w") as ff:
+                        ff.write(src)
+                    with open(".vscode/errors.txt","w") as ff:
+                        ff.write(str(e))
+                    raise e
+                VIEW_LOCK.acquire()
+                has_view_lock=True
+                constructed_modules[m]=(mod,threading.current_thread().name)
+                fun = mod.get_function(f)
+                return fun
+            finally:
+                COMPILE_LOCK.release()
+    finally:
+        if(has_view_lock):VIEW_LOCK.release()
 
 from pycuda.gpuarray import GPUArray
 import numpy as np
@@ -97,7 +116,7 @@ def plotSinglePointsToTensor(cam_type:int,cam_data:(torch.Tensor or list[float])
     assert(points.is_contiguous())
     assert(env.is_contiguous())
     
-    module_name=f"plot CAM_TYPE={cam_type} NDIM={ndim}"
+    module_name=f"plot CAM_TYPE={cam_type} NDIM={ndim} STRUCTURAL_REFINEMENT={int(args.STRUCTURAL_REFINEMENT)}"
     plot_points = get_kernel(module_name,"plot")
     determine_depth = get_kernel(module_name,"determine_depth")
     bundle = get_kernel(module_name,"bundle")
@@ -136,9 +155,40 @@ def plotSinglePointsToTensor(cam_type:int,cam_data:(torch.Tensor or list[float])
     drv.Context.synchronize()
     return plot,weights
 
-def plotSinglePointsBackwardsToTensor(*args):
-    #TODO
-    return None,None,None
+def plotSinglePointsBackwardsToTensor(weights:torch.Tensor,cam_data:list[float],points:torch.Tensor,environment:torch.Tensor,plot:torch.Tensor,plot_grad:torch.Tensor):
+    cam_type=int(cam_type)
+    ndim=points.shape[-1]-3
+    w,h=map(int,cam_data[2:4])
+    if(type(cam_data)==list):
+        grad_cam=False
+        gpu_cam_data=torch.tensor(cam_data).to(torch.float32).cuda().contiguous()
+    else:
+        grad_cam=True
+        gpu_cam_data=cam_data.clone().detach().to(torch.float32).cuda().contiguous()
+    num_points = points.shape[0]
+    assert(points.is_contiguous())
+    assert(environment.is_contiguous())
+    module_name=f"plot CAM_TYPE={cam_type} NDIM={ndim} STRUCTURAL_REFINEMENT={int(args.STRUCTURAL_REFINEMENT)}"
+    
+    cam_data_grad=torch.zeros_like(cam_type)
+    points_grad=torch.zeros_like(points)
+    environment_grad=torch.zeros_like(environment)
+    
+    backward = get_kernel(module_name,"backward")
+    
+    backward(
+        get_kernel(gpu_cam_data), np.int32(ndim),
+        get_kernel(points_grad),get_kernel(points), np.int32(num_points),
+        get_kernel(plot), get_kernel (plot_grad), get_kernel(weights)
+    )
+    
+    return cam_data_grad if grad_cam else None,points_grad,environment_grad
 
+#This almost feels like a hack
 def cleanup():
+    VIEW_LOCK.acquire()
     cuda_context.pop()
+    for m in [*constructed_modules.keys()]:
+        if(constructed_modules[m][1]==threading.current_thread().name):
+            del constructed_modules[m]
+    VIEW_LOCK.release()
