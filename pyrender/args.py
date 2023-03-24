@@ -18,6 +18,8 @@ parser.add_argument('--structural_refinement',default=False,required=False,actio
 parser.add_argument('--extra_channels',default='0',required=False,help="Puts extra channels initially filled with gaussian noise onto points.")
 
 parser.add_argument('--timeout',required=False,default='-1.0',help="Specifies how much time the program should automatically close in.")
+parser.add_argument('--max_batches',required=False,default='-1.0',help="Specifies many batches the nn should train for before the application closes itself.")
+
 raw_args=parser.parse_args()
 
 ndim=3+int(raw_args.extra_channels)
@@ -30,6 +32,7 @@ workspace = raw_args.workspace
 
 timeout=(float(raw_args.timeout)>0)
 timeout_s=float(raw_args.timeout)
+max_batches = float(raw_args.max_batches)
 
 STRUCTURAL_REFINEMENT=raw_args.structural_refinement
 

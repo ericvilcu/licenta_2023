@@ -155,7 +155,7 @@ def plotSinglePointsToTensor(cam_type:int,cam_data:(torch.Tensor or list[float])
     drv.Context.synchronize()
     return plot,weights
 
-def plotSinglePointsBackwardsToTensor(weights:torch.Tensor,cam_data:list[float],points:torch.Tensor,environment:torch.Tensor,plot:torch.Tensor,plot_grad:torch.Tensor):
+def plotSinglePointsBackwardsToTensor(weights:torch.Tensor,cam_type:int,cam_data:list[float],points:torch.Tensor,environment:torch.Tensor,plot:torch.Tensor,plot_grad:torch.Tensor):
     cam_type=int(cam_type)
     ndim=points.shape[-1]-3
     w,h=map(int,cam_data[2:4])
@@ -170,16 +170,18 @@ def plotSinglePointsBackwardsToTensor(weights:torch.Tensor,cam_data:list[float],
     assert(environment.is_contiguous())
     module_name=f"plot CAM_TYPE={cam_type} NDIM={ndim} STRUCTURAL_REFINEMENT={int(args.STRUCTURAL_REFINEMENT)}"
     
-    cam_data_grad=torch.zeros_like(cam_type)
+    cam_data_grad=torch.zeros_like(cam_data)
     points_grad=torch.zeros_like(points)
     environment_grad=torch.zeros_like(environment)
     
     backward = get_kernel(module_name,"backward")
     
     backward(
-        get_kernel(gpu_cam_data), np.int32(ndim),
-        get_kernel(points_grad),get_kernel(points), np.int32(num_points),
-        get_kernel(plot), get_kernel (plot_grad), get_kernel(weights)
+        gpu_array(gpu_cam_data), np.int32(ndim),
+        gpu_array(points_grad),gpu_array(points), np.int32(num_points),
+        gpu_array(plot), gpu_array (plot_grad), gpu_array(weights),
+        grid=(1+((num_points-1)//max_threads),1,1),
+        block=line_max_threads
     )
     
     return cam_data_grad if grad_cam else None,points_grad,environment_grad

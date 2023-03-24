@@ -6,6 +6,7 @@ def clamp(x,mn,mx):
     return min(mx,max(x,mn))
 class CameraController():
     def __init__(self) -> None:
+        self.use_neural=False
         self.key_state=[0]*8
         self.mouse_state=[0]*3
         self.CW,self.CH=1241.0, 376.0#300.,300.
@@ -14,11 +15,12 @@ class CameraController():
         self.ypr=[0.]*3
         self.fov=90
         self.position=[0.]*3
+        self.flip_x=True
     
     def camera_type(self):
         return 0#Only pinhole projection for now.
     @staticmethod
-    def rotation_from(yaw:float,pitch:float,roll:float):
+    def rotation_from(yaw:float,pitch:float,roll:float,flip_x:bool):
         sin,cos=math.sin,math.cos
         y,p,r=yaw,pitch,0
         rotation=[[0.,0.,0.],[0.,0.,0.],[0.,0.,0.]]
@@ -34,11 +36,11 @@ class CameraController():
         # rotation[2][0] = float(cos(p) * sin(y))
         # rotation[2][1] = float(sin(p))
         # rotation[2][2] = float(cos(p) * cos(y))
-        
+        xm=-1 if flip_x else 1
         #If multiplying to the left
-        rotation[0][0] = float(cos(y))
-        rotation[0][1] = float(sin(y) * sin(p))
-        rotation[0][2] = float(sin(y) * cos(p))
+        rotation[0][0] = float(cos(y))*xm
+        rotation[0][1] = float(sin(y) * sin(p))*xm
+        rotation[0][2] = float(sin(y) * cos(p))*xm
         rotation[1][0] = float(0)
         rotation[1][1] = float(cos(p))
         rotation[1][2] = float(-sin(p))
@@ -49,7 +51,7 @@ class CameraController():
     
     def rebuild_camera(self):
         self.needs_rebuild=False
-        rotation:chain[float] = chain(*self.rotation_from(*self.ypr))
+        rotation:chain[float] = chain(*self.rotation_from(*self.ypr,flip_x=self.flip_x))
         #af=math.atan(self.fov/180*math.pi)
         self.camera=[0.,0.,self.CW,self.CH,*rotation,*self.position,self.CW/2,self.CH/2,700.,700.]#self.CW/2,self.CH/2]#*(2+9+3+4)
     
@@ -86,6 +88,10 @@ class CameraController():
                     self.key_state[6]=is_pressed
                 elif(keysym.sym==sdl2.SDLK_e):
                     self.key_state[7]=is_pressed
+                elif(keysym.sym==sdl2.SDLK_n and not is_pressed):
+                    self.use_neural=not self.use_neural
+                elif(keysym.sym==sdl2.SDLK_f and not is_pressed):
+                    self.flip_x=not self.flip_x
             else:
                 pass
         

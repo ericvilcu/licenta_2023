@@ -12,7 +12,9 @@ import os
 
 psnr_module=PeakSignalNoiseRatio().cuda()
 ssim_module=StructuralSimilarityIndexMeasure().cuda()
-lpips_module=LearnedPerceptualImagePatchSimilarity().cuda()
+lpips_module=LearnedPerceptualImagePatchSimilarity(net_type='alex').cuda()
+vgg_module=LearnedPerceptualImagePatchSimilarity(net_type='vgg').cuda()
+squeeze_module=LearnedPerceptualImagePatchSimilarity(net_type='squeeze').cuda()
 
 TOTAL_BATCHES_THIS_RUN=0
 
@@ -29,9 +31,11 @@ loss_functions={
     "l1":torch.nn.functional.l1_loss,
     "psnr":lambda src,target:psnr_module(make_ch_first(src),make_ch_first(target)),
     "ssim":lambda src,target:ssim_module(make_ch_first(src)[None,:],make_ch_first(target)[None,:]),
-    "lpips":lambda src,target:lpips_module(norm(make_ch_first(src)[None]),make_ch_first(target)[None]),
+    "lpips_alex":lambda src,target:lpips_module(norm(make_ch_first(src)[None]),make_ch_first(target)[None]),
+    "lpips_vgg":lambda src,target:vgg_module(norm(make_ch_first(src)[None]),make_ch_first(target)[None]),
+    "lpips_squeeze":lambda src,target:squeeze_module(norm(make_ch_first(src)[None]),make_ch_first(target)[None]),
 }
-
+USED_LOSS="lpips_vgg"
 
 
 def error_test():
@@ -231,14 +235,16 @@ class trainer():
                 diff=self.train_diff(rez,tensor_subsection(target,camera),1/(len(cameras)*len(row)))
                 for name in loss_functions:
                     total_diff[name]+=float(diff[name])
-                diff['l1'].backward()
+                diff[USED_LOSS].backward()
                 diff={}
         return total_diff
 
-    
-    def size_safe_forward(self,plots:list[torch.Tensor]):
-        #TODO: implement
-        pass
+    def size_safe_forward_nograd(self,cam_type:int,camera_data:list[float],scene:int):
+        with torch.no_grad():
+            #todo? image split if necessary?
+            subplots=self.draw_subplots(scene,cam_type,pad_camera(camera_data,self.pad),self.nn.required_subplots())
+            return unpad_tensor(self.forward(subplots),self.pad)
+        
     
     def train_one_batch(self):
         try:
@@ -329,11 +335,11 @@ class trainer_thread(Thread):
         while(not self.should_stop_training):
             self.parent.train_one_batch()
             e=time()
-            if(e-last_report>self.report_freq and self.parent.report_batches>0):
+            if(e-last_report>self.report_freq or self.should_stop_training and self.parent.report_batches>0):
                 l={loss:float(self.parent.report_losses[loss]/self.parent.report_batches) for loss in self.parent.report_losses}
                 print(f"Report: average loss is {l} in {self.parent.report_batches} batches")
-                dt=e=s
-                print(f"Runtime={int(dt)//3600:01d}:{(int(dt)//60)%60:01d}:{int(dt%60):01d}.{str(math.fmod(dt,1))[2:]}")
+                dt=e-s
+                print(f"Total batches:{TOTAL_BATCHES_THIS_RUN};Runtime={int(dt)//3600:02d}:{(int(dt)//60)%60:02d}:{int(dt)%60:02d}.{str(math.fmod(dt,1))[2:]}")
                 l={}
                 last_report=e
                 self.parent.report_losses={}

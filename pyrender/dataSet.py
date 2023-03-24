@@ -42,8 +42,13 @@ class learnableData(torch.nn.Module):
                 environment: torch.Tensor=torch.cat((environment,append_environment),-1)
                 append_environment=None
                 environment=environment.contiguous()
-        self.register_buffer("environment",environment)
-        self.register_buffer("points",points)
+        self.register_parameter("environment",param=torch.nn.Parameter(environment))
+        self.environment:torch.Tensor=self.environment
+        self.register_parameter("points",param=torch.nn.Parameter(points))
+        self.points:torch.Tensor=self.points
+        
+        self.points.requires_grad = True
+        self.environment.requires_grad = True
         
     def save(self,path):
         points_path=os.path.join(path,"points.bin")
@@ -79,9 +84,9 @@ class DataSet(torch.nn.Module):
     def __init__(self,modules:list[Scene]=None,scenes:list[str]=None,force_ndim=None) -> None:
         super().__init__()
         if(modules!=None):
-            self.scenes = modules
+            self.scenes = torch.nn.ModuleList(modules)
         else:
-            self.scenes = list(map(lambda path:Scene(fn=path,force_ndim=force_ndim),scenes))
+            self.scenes = torch.nn.ModuleList(map(lambda path:Scene(fn=path,force_ndim=force_ndim),scenes))
         for i,scene in enumerate(self.scenes):self.register_module(f"scene{i}",scene)
         self.trainImages=TrainImages(self)
     def save_to(self,path:str):

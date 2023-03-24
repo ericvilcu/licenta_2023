@@ -42,7 +42,7 @@ def to_bin(t:torch.Tensor,fn:str):
         dims=t.size()
         f.write(struct.pack("q",len(dims)))
         f.write(struct.pack("q"*len(dims),*dims))
-        f.write(t.cpu().numpy().tobytes())
+        f.write(t.detach().cpu().numpy().tobytes())
         
         
         

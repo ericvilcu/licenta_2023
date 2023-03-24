@@ -70,9 +70,11 @@ try:
         #interactive view.
         
         cam=controller.get_camera()
-        view = pm.forward(controller.camera_type(),cam,ds.scenes[0].data.points,ds.scenes[0].data.environment)    
+        if(controller.use_neural):
+            view = t.size_safe_forward_nograd(controller.camera_type(),cam,0)
+        else:
+            view = pm.forward(controller.camera_type(),cam,ds.scenes[0].data.points,ds.scenes[0].data.environment)    
         r.upload_tensor('interactive',view)
-        
         ev=r.update()
         #TODO:autosave-check
         
