@@ -7,7 +7,15 @@
 #ifndef NDIM
 #define NDIM 3
 #endif
+#ifndef CAMERA_GRAD
+#define CAMERA_GRAD 0
+#endif
 #include <cuda_runtime.h>
+
+float __hdfi__ test_depth(float my_depth, float max_depth){
+    return -1;
+    return 1;
+}
 //Step 1 of plotting:
 void __global__ translateKernelCharToSurface(cudaSurfaceObject_t output, const uchar4* colors, const int h, const int w, const int hd = 0, const int wd = 0) {
     int idx = threadIdx.x + blockDim.x * blockIdx.x;
@@ -92,7 +100,7 @@ void __global__ bundle(float* plot, float* weights, const int h, const int w) {
     }
 }
 //todo? switch to normal arrays for camera? as in, a[20], so it passes all elements but not by reference.
-void __global__ backward(const float* camera_data, int ndim, float* point_grad, const float* point_data, int num_points, const float* plot, const float* plot_grad, const float* plot_weights){
+void __global__ backward(float* camera_gradient, const float* camera_data, int ndim, float* point_grad, const float* point_data, int num_points, const float* plot, const float* plot_grad, const float* plot_weights){
     Camera camera{camera_data};
     int idx = threadIdx.x + blockDim.x * blockIdx.x;
     if (idx < num_points) {
@@ -116,7 +124,7 @@ void __global__ backward(const float* camera_data, int ndim, float* point_grad, 
             }
             //estimate for point position refinement, based on: https://arxiv.org/pdf/2110.06635.pdf
             //Note: the edges of the image are iffy, so I exclude them.
-            if(STRUCTURAL_REFINEMENT && d.coords.x>0 && d.coords.y>0 && d.coords.x<camera.w-1 && d.coords.y<camera.h-1)//todo: verify the implementation at the camera level.
+            if(STRUCTURAL_REFINEMENT!=0 && d.coords.x>0 && d.coords.y>0 && d.coords.x<camera.w-1 && d.coords.y<camera.h-1)//todo: verify the implementation at the camera level.
             {
                 auto compute_position_grad = [&](int pixel) -> float
                 {
@@ -151,10 +159,16 @@ void __global__ backward(const float* camera_data, int ndim, float* point_grad, 
                 float grad_Y = 0.5f * (-compute_position_grad(pixelY0) + compute_position_grad(pixelY1));
                 float3 pixel_direction = camera.direction_for_pixel(make_float2(d.coords.x+0.5f, d.coords.y+0.5f));
                 float3 wanted_direction = camera.direction_for_pixel(make_float2(d.coords.x + grad_X+0.5f, d.coords.y + grad_Y+0.5f));
-                float3 gradient_world_space = make_float3((pixel_direction.x - wanted_direction.x) * -depth, (pixel_direction.y - wanted_direction.y) * -depth, (pixel_direction.z - wanted_direction.z) * -depth);
-                point_grad_start[0] += gradient_world_space.x;
-                point_grad_start[1] += gradient_world_space.y;
-                point_grad_start[2] += gradient_world_space.z;
+                float3 gradient_screen_space = make_float3((pixel_direction.x - wanted_direction.x) * -depth, (pixel_direction.y - wanted_direction.y) * -depth, (pixel_direction.z - wanted_direction.z) * -depth);
+                point_grad_start[0] += gradient_screen_space.x;
+                point_grad_start[1] += gradient_screen_space.y;
+                point_grad_start[2] += gradient_screen_space.z;
+/*#ifdef CAMERA_GRAD
+#pragma message("Warn: Only camera position gradient is implemented, rotation and intrinsics are not.")
+                atomicAdd(&camera_gradient[4+9+0],-gradient_screen_space.x);
+                atomicAdd(&camera_gradient[4+9+1],-gradient_screen_space.y);
+                atomicAdd(&camera_gradient[4+9+2],-gradient_screen_space.z);
+#endif*/
             }
         }
     }

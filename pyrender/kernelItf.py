@@ -90,6 +90,7 @@ def get_kernel(m:str,f:str) -> pyf:
                 has_view_lock=True
                 constructed_modules[m]=(mod,threading.current_thread().name)
                 fun = mod.get_function(f)
+                print(f"CUDA MODULE \"{m}\" COMPILED!")
                 return fun
             finally:
                 COMPILE_LOCK.release()
@@ -160,10 +161,8 @@ def plotSinglePointsBackwardsToTensor(weights:torch.Tensor,cam_type:int,cam_data
     ndim=points.shape[-1]-3
     w,h=map(int,cam_data[2:4])
     if(type(cam_data)==list):
-        grad_cam=False
         gpu_cam_data=torch.tensor(cam_data).to(torch.float32).cuda().contiguous()
     else:
-        grad_cam=True
         gpu_cam_data=cam_data.clone().detach().to(torch.float32).cuda().contiguous()
     num_points = points.shape[0]
     assert(points.is_contiguous())
@@ -177,6 +176,7 @@ def plotSinglePointsBackwardsToTensor(weights:torch.Tensor,cam_type:int,cam_data
     backward = get_kernel(module_name,"backward")
     
     backward(
+        gpu_array(cam_data_grad),
         gpu_array(gpu_cam_data), np.int32(ndim),
         gpu_array(points_grad),gpu_array(points), np.int32(num_points),
         gpu_array(plot), gpu_array (plot_grad), gpu_array(weights),
@@ -184,7 +184,7 @@ def plotSinglePointsBackwardsToTensor(weights:torch.Tensor,cam_type:int,cam_data
         block=line_max_threads
     )
     
-    return cam_data_grad if grad_cam else None,points_grad,environment_grad
+    return cam_data_grad,points_grad,environment_grad
 
 #This almost feels like a hack
 def cleanup():

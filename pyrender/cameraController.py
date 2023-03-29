@@ -2,6 +2,7 @@ import math
 import sdl2
 import sdl2.events as sdl_events
 from itertools import chain
+import torch
 def clamp(x,mn,mx):
     return min(mx,max(x,mn))
 class CameraController():
@@ -16,6 +17,8 @@ class CameraController():
         self.fov=90
         self.position=[0.]*3
         self.flip_x=True
+        self.shown_dim=0
+        self.shown_ndim=3
     
     def camera_type(self):
         return 0#Only pinhole projection for now.
@@ -55,6 +58,10 @@ class CameraController():
         #af=math.atan(self.fov/180*math.pi)
         self.camera=[0.,0.,self.CW,self.CH,*rotation,*self.position,self.CW/2,self.CH/2,700.,700.]#self.CW/2,self.CH/2]#*(2+9+3+4)
     
+    def only_shown_dimensions(self,tsr:torch.Tensor):
+        ch=tsr.size(-1)
+        return torch.stack([tsr[:,:,((i+self.shown_dim)%ch+ch)%ch] for i in range(self.shown_ndim)],-1)
+    
     def process_sdl_events(self,events:list[sdl_events.SDL_Event],delta:float=1/60):
         for event in events:#These if chains are quite slow. note that this is going to be basically called every frame.
             if(event.type==sdl_events.SDL_MOUSEBUTTONDOWN):
@@ -72,6 +79,7 @@ class CameraController():
             elif(event.type==sdl_events.SDL_KEYDOWN or event.type==sdl_events.SDL_KEYUP):
                 keysym:sdl_events.SDL_Keysym=event.key.keysym
                 is_pressed=int(bool(event.type==sdl_events.SDL_KEYDOWN))
+                #This is not great, but since this is python and match/case does the same thing under the hood, what am I supposed to do? a lambda dictionary?
                 if(keysym.sym==sdl2.SDLK_w):
                     self.key_state[0]=is_pressed
                 elif(keysym.sym==sdl2.SDLK_s):
@@ -92,6 +100,12 @@ class CameraController():
                     self.use_neural=not self.use_neural
                 elif(keysym.sym==sdl2.SDLK_f and not is_pressed):
                     self.flip_x=not self.flip_x
+                elif(keysym.sym==sdl2.SDLK_KP_PLUS and not is_pressed):
+                    self.shown_dim+=1
+                elif(keysym.sym==sdl2.SDLK_KP_MINUS and not is_pressed):
+                    self.shown_dim-=1
+                elif(keysym.sym==sdl2.SDLK_KP_MULTIPLY and not is_pressed):
+                    self.shown_ndim=4-self.shown_ndim
             else:
                 pass
         

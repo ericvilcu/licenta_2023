@@ -9,6 +9,7 @@ from torchmetrics.image.psnr import PeakSignalNoiseRatio
 from torchmetrics.image.ssim import StructuralSimilarityIndexMeasure
 from torchmetrics.image.lpip import LearnedPerceptualImagePatchSimilarity
 import os
+import args
 
 psnr_module=PeakSignalNoiseRatio().cuda()
 ssim_module=StructuralSimilarityIndexMeasure().cuda()
@@ -35,8 +36,21 @@ loss_functions={
     "lpips_vgg":lambda src,target:vgg_module(norm(make_ch_first(src)[None]),make_ch_first(target)[None]),
     "lpips_squeeze":lambda src,target:squeeze_module(norm(make_ch_first(src)[None]),make_ch_first(target)[None]),
 }
-USED_LOSS="lpips_vgg"
 
+if args.main_loss!='':
+    if args.main_loss in loss_functions:
+        USED_LOSS=args.main_loss
+        get_loss=lambda x:x[USED_LOSS]
+    else:
+        #a few special cases.
+        if(args.main_loss=="l1+vgg"):
+            USED_LOSS=args.main_loss
+            get_loss=lambda x:x["lpips_vgg"]+x['l1']
+        else:
+            raise Exception(f"{args.main_loss} is not a known loss type. Available are {[*loss_functions]}(though ssim/psnr should never be used, and there are other special options like 'l1+vgg')")
+else:
+    USED_LOSS="lpips_vgg"
+    get_loss=lambda x:x[USED_LOSS]
 
 def error_test():
     #An error recommended I try this to check for some error.
@@ -89,9 +103,9 @@ class MainModule(torch.nn.Module):
             last_in+=ndim+1
             for j in range(layers):
                 if(not use_gates):
-                    mdl= torch.nn.Conv2d(last_in,inter_ch,kernel_size=(kern,kern),padding=padding)
+                    mdl=torch.nn.Conv2d(last_in,inter_ch,kernel_size=(kern,kern),padding=padding)
                 else:
-                    mdl=  GateModule(last_in,inter_ch,kernel_size=(kern,kern),padding=padding)
+                    mdl=     GateModule(last_in,inter_ch,kernel_size=(kern,kern),padding=padding)
                 #self.register_module(f"in{i}_{j}",mdl)
                 l.append(mdl)
                 last_in=inter_ch
@@ -103,16 +117,16 @@ class MainModule(torch.nn.Module):
             last_in+=ndim+1+inter_ch
             for j in range(layers):
                 if(not use_gates):
-                    mdl= torch.nn.Conv2d(last_in,inter_ch,kernel_size=(kern,kern),padding=padding)
+                    mdl=torch.nn.Conv2d(last_in,inter_ch,kernel_size=(kern,kern),padding=padding)
                 else:
-                    mdl=  GateModule(last_in,inter_ch,kernel_size=(kern,kern),padding=padding)
+                    mdl=     GateModule(last_in,inter_ch,kernel_size=(kern,kern),padding=padding)
                 #self.register_module(f"out{i}_{j}",mdl)
                 l.append(mdl)
                 last_in=inter_ch
             self.out_layers.append(l)
             last_in=16
         self.out_layers=torch.nn.ModuleList(torch.nn.ModuleList(layer) for layer in self.out_layers)
-        self.final=torch.nn.Conv2d(last_in+ndim+1,3,kernel_size=(1,1),padding=0)
+        self.final=torch.nn.Conv2d(last_in,3,kernel_size=(1,1),padding=0)
         #self.register_module("final", self.final)
         self.downsampler=torch.nn.AvgPool2d((2,2),stride=2)
         #self.register_module("downsampler", self.downsampler)
@@ -139,11 +153,11 @@ class MainModule(torch.nn.Module):
             if (prev.size(0) != 0):
                 if (len(prev.size()) == 3):
                     prev = torch.nn.functional.interpolate(torch.stack((prev,)),
-                        mode='bilinear',align_corners=False,
+                        mode='bilinear',align_corners=True,
                         size=[img.size(-2), img.size(-1) ])[0]
                 else:
                     prev = torch.nn.functional.interpolate(prev,
-                        mode='bilinear',align_corners=False,
+                        mode='bilinear',align_corners=True,
                         size=[img.size(-2), img.size(-1) ])
                 img = torch.cat((img,prev), -3)
             img = torch.cat([img,imgs[len(partials)].transpose(-3, -1).transpose(-2, -1)], -3)
@@ -152,7 +166,7 @@ class MainModule(torch.nn.Module):
             prev = img
 
         #print([*self.final.parameters()][0][0][0],[*self.final.parameters()][1])
-        prev = self.final( torch.cat([img,imgs[0].transpose(-3, -1).transpose(-2, -1)]) )
+        prev = self.final(img)
         #Now un-transpose it.
         return prev.transpose(-2,-1).transpose(-3,-1)
 
@@ -161,9 +175,9 @@ from torch.utils.data import DataLoader
 from camera_utils import best_split_camera,downsize_camera,pad_camera,unpad_tensor,put_back_together,tensor_subsection
 class trainer():
     def __init__(self,data:dataSet.DataSet,nn:MainModule=None,optim:torch.optim.Adam=None,**options) -> None:
-        self.nn = MainModule(**options).cuda() if nn==None else nn.cuda()
+        self.nn: MainModule = MainModule(**options).cuda() if nn==None else nn.cuda()
         self.pad = int(options['start_padding']) if 'start_padding' in options else int(2**self.nn.required_subplots())
-        self.optim = torch.optim.Adam([*self.nn.parameters(),*data.parameters()])if optim==None else optim
+        self.optim = torch.optim.Adam([*self.nn.parameters(),*data.parameters()],lr=1e-2)if optim==None else optim
         self.data=data
         #TODO: split into train and validation. Maybe later.
         self.train_dataloader = DataLoader(self.data.trainImages, batch_size=1, shuffle=True,)
@@ -235,7 +249,8 @@ class trainer():
                 diff=self.train_diff(rez,tensor_subsection(target,camera),1/(len(cameras)*len(row)))
                 for name in loss_functions:
                     total_diff[name]+=float(diff[name])
-                diff[USED_LOSS].backward()
+                global get_loss
+                (get_loss(diff)/self.batch_size).backward()
                 diff={}
         return total_diff
 

@@ -174,10 +174,15 @@ class Renderer():
         elif(rgb.dtype==torch.uint8):
             pass
         else:
-            raise Exception(f"{rgb.dtype} does not have a protocol.")
-        rgb=rgb[::,::,:3:]
+            raise Exception(f"{rgb.dtype} data type does not have a protocol for being uploaded.")
+        if(rgb.size(-1)>=3):
+            rgb=rgb[::,::,:3:]
+        elif(rgb.size(-1)==1):
+            rgb=torch.cat([rgb,rgb,rgb],-1)
+        else:
+            raise Exception(f"{rgb.size(-1)} color channels do not have a protocol for being uploaded.")
         
-        h,w,*unused=rgb.size()
+        h,w,unused=rgb.size()
         
         rgb_cpu=rgb.cpu().reshape((rgb.numel(),)).contiguous()
         #This is by far the slowest thing.
@@ -191,8 +196,17 @@ class Renderer():
         gl.glTexImage2D(gl.GL_TEXTURE_2D, 0, gl.GL_RGB8, w, h, 0, gl.GL_RGB, gl.GL_UNSIGNED_BYTE, rgb_bytes)
         GL_CHECK_ERROR("RGB tensor upload failed")
         
-        
-        
+    def is_window_minimized(self):
+        self.ensureGL()
+        flags=sdl2.SDL_GetWindowFlags(self.window)
+        flg=sdl2.SDL_WINDOW_MINIMIZED
+        return 0!=(flags&flg)
+    
+    def sleep_until_not_minimized(self):
+        self.ensureGL()
+        while(self.is_window_minimized()):
+            event=sdl2.SDL_Event()
+            sdl2.SDL_WaitEvent(event)
         
     def upload_rgb(self,view_name:str,rgb):
         """WARNING: slow use for testing only
