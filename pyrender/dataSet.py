@@ -7,6 +7,7 @@ class learnableData(torch.nn.Module):
     def __init__(self,fn:str=None,points:torch.Tensor=None,env:torch.Tensor=None,force_ndim=None) -> None:
         super().__init__()
         if(fn!=None):
+            self.environment_type=-1#TODO: some way to get environment type
             if(os.path.exists(fn+"/points.txt")):
                 points = customSer.from_text(fn+"/points.txt")
                 environment = customSer.from_text(fn+"/environment.txt")
@@ -112,7 +113,22 @@ import struct
 import io
 def read_bytes(s:str,f:io.FileIO):
     return struct.unpack(s,f.read(struct.calcsize(s)))
-#This class alone may urge me to use asyncIO
+
+class camera_updater():
+    def __init__(self,cam_type,old_camera,path):
+        self.type=cam_type
+        self.old=old_camera
+        self.pth=path
+    def __call__(self, new_camera):
+        if(self.old.numel()!=new_camera.numel()):
+            raise Exception('camera length not equal to previous camera')
+        with open(self.pth[0],'r+b') as f:
+            f.seek(0)
+            f.write(struct.pack("i",self.type))
+            f.write(struct.pack("IIII",int(new_camera[0]),int(new_camera[1]),int(new_camera[2]),int(new_camera[3])))
+            f.write(struct.pack("f"*len(new_camera[4:]),*map(float,new_camera[4:])))
+
+
 class TrainImages(Dataset):
     def __init__(self, ds:DataSet):
         super().__init__()
@@ -141,6 +157,7 @@ class TrainImages(Dataset):
             with open(fn,'rb') as f:
                 cam_type:int
                 cam_type,w0,h0,w,h=read_bytes('IIIII',f)
+                lum,=read_bytes('f',f)
                 rot=read_bytes('f'*9,f)
                 rot=(rot[0],rot[1],rot[2],
                             rot[3],rot[4],rot[5],
@@ -151,15 +168,15 @@ class TrainImages(Dataset):
                 
                 if(cam_type == 0):
                     #NOTE: ppx,ppy,fx,fy
-                    ppy,ppx,fx,fy=read_bytes('f'*4,f)
+                    ppx,ppy,fx,fy=read_bytes('f'*4,f)
                     extra=[ppx,ppy,fx,fy]
                     
                 else:raise Exception("Unknown camera type")
-                cam=list(map(float,[w0,h0,w,h,*rot,*trans,*extra]))
+                cam=torch.tensor(list(map(float,[w0,h0,w,h,lum,*rot,*trans,*extra])))
                 image_data=bytearray(f.read())
                 target=(torch.frombuffer(image_data,dtype=torch.uint8).cuda().reshape((h,w,4))).to(dtype=torch.float32)/255
                 #It should be a w x h x 4 data thing
-                return scene_id,cam_type,cam,target
+                return scene_id,cam_type,cam,target,{'cam_type':cam_type,'old_camera':cam,'path':fn}
         else:
             raise Exception("did not implement reading torch images")
 

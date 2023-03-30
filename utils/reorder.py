@@ -14,11 +14,12 @@ else:
     PAD=int(sys.argv[4]) if len(sys.argv>4) else 0
 import os
 try:
-    l = [int(i[:len(i)-len(EXT)]) for i in os.listdir(DIR) if i.endswith(EXT)]
+    l = [str(i[:len(i)-len(EXT)]) for i in os.listdir(DIR) if i.endswith(EXT)]
+    l.sort()
 except:
     print("Names are not numbers; sorting lexicographically...")
     l = [str(i[:len(i)-len(EXT)]) for i in os.listdir(DIR) if i.endswith(EXT)]
-l.sort()
+    l.sort(key=int)
 for i,n in enumerate(l):
     ii=format(START+i,f"0{PAD}d")
     os.rename(os.path.join(DIR,str(n)+EXT),os.path.join(DIR,ii+EXT))

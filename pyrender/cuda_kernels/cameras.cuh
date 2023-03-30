@@ -86,7 +86,7 @@ struct PartialCameraDataTemplate
 	__hdfi__ PartialCameraDataTemplate() { w0=h=h=w=0; };
 };
 struct PinholeCameraData:PartialCameraDataTemplate{
-	float ppx,ppy,fx,fy;
+	float ppx,ppy,fx,fy,lum;
 	//These should be implemented for any camera type, or else the inline thing in kernels may break.
 	__hdfi__ ScreenCoordsWithDepth mapToScreenCoordsFromWorldCoords(float3 world_coords) const {
 		if (world_coords.z < near_clip || world_coords.z > far_clip) return ScreenCoordsWithDepth::invalid();
@@ -109,11 +109,12 @@ struct PinholeCameraData:PartialCameraDataTemplate{
         h0=data[1];
         w =data[2];
         h =data[3];
-        transform=Transform::from(data+4);
-        ppx=data[4+9+3+0];
-        ppy=data[4+9+3+1];
-        fx =data[4+9+3+2];
-        fy =data[4+9+3+3];
+        lum=data[4];
+        transform=Transform::from(data+5);
+        ppx=data[5+9+3+0];
+        ppy=data[5+9+3+1];
+        fx =data[5+9+3+2];
+        fy =data[5+9+3+3];
     };
 };
 

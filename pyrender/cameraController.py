@@ -56,7 +56,8 @@ class CameraController():
         self.needs_rebuild=False
         rotation:chain[float] = chain(*self.rotation_from(*self.ypr,flip_x=self.flip_x))
         #af=math.atan(self.fov/180*math.pi)
-        self.camera=[0.,0.,self.CW,self.CH,*rotation,*self.position,self.CW/2,self.CH/2,700.,700.]#self.CW/2,self.CH/2]#*(2+9+3+4)
+        #TODO: add shortcuts for controlling lightness
+        self.camera=[0.,0.,self.CW,self.CH,1,*rotation,*self.position,self.CW/2,self.CH/2,700.,700.]#self.CW/2,self.CH/2]#*(2+9+3+4)
     
     def only_shown_dimensions(self,tsr:torch.Tensor):
         ch=tsr.size(-1)
@@ -113,7 +114,7 @@ class CameraController():
         if(motion!=(0,0)):
             if(self.needs_rebuild):
                 self.rebuild_camera()
-            rot=self.camera[4:4+9]
+            rot=self.camera[5:5+9]
             motion=(delta*-motion[1],0.,delta*-motion[0])
             
             motion: tuple[float,float,float]=tuple(

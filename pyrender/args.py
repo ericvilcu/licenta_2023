@@ -28,6 +28,8 @@ parser.add_argument('--loss_type',default='',help="Specifies which loss backward
 
 #visualization
 parser.add_argument('--norender',action='store_true',default=False,required=False,help="Specifies to ditch the main window entirely. note: currently breaks if you ctrl+c the app to stop, so make sure to specify timeout or max_batches")
+parser.add_argument('-W','--width',default='',required=False,help="Specifies window width")
+parser.add_argument('-H','--height',default='',required=False,help="Specifies window height")
 parser.add_argument('--example_interval',default='-1',required=False,help="Specifies the interval to wait before showing a new example image. (default is 4.0 if training, 0.5 otherwise)")
 
 #timeout/shutdown
@@ -39,13 +41,15 @@ raw_args=parser.parse_args()
 base_nn:str = raw_args.base_nn
 ndim=3+int(raw_args.extra_channels)
 scenes=[s[0] for s in raw_args.scene]
+width=raw_args.width
+height=raw_args.height
 train=not raw_args.notrain
 example_interval=float(raw_args.example_interval)
 if(example_interval<0):example_interval=4.0 if train else 0.5
 live_render=not raw_args.norender
 make_workspace:bool = raw_args.make_workspace
 workspace:str = raw_args.workspace
-
+improve_cameras=True
 main_loss:str=raw_args.loss_type
 
 timeout=(float(raw_args.timeout)>0)

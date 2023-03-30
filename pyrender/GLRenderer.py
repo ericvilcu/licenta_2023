@@ -14,10 +14,10 @@ def GL_CHECK_ERROR(err:str):
         raise RuntimeError(err)
 
 class Renderer():
-    def __init__(self,window_name:str="window name unset"):
+    def __init__(self,window_name:str="window name unset",w:int=500,h:int=500):
         self.views = {}
         WindowFlags = sdl2.SDL_WINDOW_OPENGL|sdl2.SDL_WINDOW_RESIZABLE|sdl2.SDL_WINDOW_SHOWN
-        self.h:int = 500;self.w:int = 500
+        self.h = h;self.w = w
         self.window = sdl2.SDL_CreateWindow(bytes(window_name,"ascii"),50,50,self.w,self.h,WindowFlags)
         self.context = sdl2.SDL_GL_CreateContext(self.window)
         gl.glEnable(gl.GL_TEXTURE_2D)

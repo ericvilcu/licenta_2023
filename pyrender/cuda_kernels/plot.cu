@@ -11,9 +11,10 @@
 #define CAMERA_GRAD 0
 #endif
 #include <cuda_runtime.h>
+//TODO: better split functions into their own subkernels
 
-float __hdfi__ test_depth(float my_depth, float max_depth){
-    return -1;
+float __hdfi__ test_depth(float my_depth, float min_depth){
+    if(min_depth * (1 + 0.001) < my_depth) return -1;
     return 1;
 }
 //Step 1 of plotting:
@@ -67,9 +68,9 @@ void __global__ plot(float* output, float* weights, const float* points, int num
         if (!rez.valid)return;
         const float pixel_depth = output[(NDIM + 1) * (screen_coords.x + screen_coords.y * w) + NDIM];
         //todo: move depth test to a header or other special function
-        if (pixel_depth * (1 + 0.001) < depth)
+        float weight = test_depth(pixel_depth,depth);
+        if (weight<=0)
             return;
-        float weight = 1;// 1 / (depth - pixel_depth + 0.01);
         #pragma unroll
         for (int i = 0; i < NDIM; ++i) {
             float* p = &output[(NDIM + 1) * (screen_coords.x + screen_coords.y * w) + i];
@@ -81,7 +82,8 @@ void __global__ plot(float* output, float* weights, const float* points, int num
 }
 
 //todo: plot environment simultaniously
-void __global__ bundle(float* plot, float* weights, const int h, const int w) {
+void __global__ bundle(float* plot, float* weights, float* environment_data, const int h, const int w,const float* camera_raw_data){
+    Camera camera{camera_raw_data};
     int idx = threadIdx.x + blockDim.x * blockIdx.x;
     int idy = threadIdx.y + blockDim.y * blockIdx.y;
     if (idx < h && idy < w) {
@@ -93,9 +95,8 @@ void __global__ bundle(float* plot, float* weights, const int h, const int w) {
                 plot[ids_m + i] = plot[ids_m + i] / local_weight;
         } else {
             int ids_m = ids * (NDIM + 1);
-            for (int i = 0; i <= NDIM; ++i)
-                plot[ids_m + i] = 0;
-            //TODO: environment
+            float3 direction = camera.direction_for_pixel(make_float2(idx+0.5f,idy+0.5f));
+            sample_environment(&plot[ids_m],environment_data,direction);
         }
     }
 }
@@ -111,10 +112,11 @@ void __global__ backward(float* camera_gradient, const float* camera_data, int n
         if (d.valid) {
             int pixel = d.coords.x + d.coords.y * camera.w;
             float depth = d.depth;
-            float surface_depth = plot[pixel * (ndim + 1) + ndim];
+            float pixel_depth = plot[pixel * (ndim + 1) + ndim];
             //I should probably move the depth test to a shared header, as well as a function for weight (which is currently always 1)
-            if (surface_depth * (1 + 0.001) < depth || plot_weights[pixel]<=0)return;
-            float weight = plot_weights[pixel];
+            float weight = test_depth(pixel_depth,depth);
+            if (weight<=0)
+                return;
             float weight_fraction = 1 / weight;
             const float* grad_start = &plot_grad[pixel * (ndim + 1)];
             float* point_grad_start = &(point_grad[ids]);
@@ -139,15 +141,18 @@ void __global__ backward(float* camera_gradient, const float* camera_data, int n
                         for (int i = 0; i < ndim; ++i) {
                             d += (this_point_data[3 + i] - pixel_data[i]) * pixel_grad[i];
                         }
-                    } else if (depth < pixel_depth + 0.001) {
-                        //blended with other points
-                        float new_inv_weight = 1 / (pixel_weight + 1);
-                        for (int i = 0; i < ndim; ++i) {
-                            d += new_inv_weight * (this_point_data[3 + i] - pixel_weight * pixel_data[i]) * pixel_grad[i];
+                    } else{
+                        float weight = test_depth(pixel_depth,depth);
+                        if (weight<=0) {
+                            //does nothing, as it would be far behind other points, not contribuiting.
+                            d = 0;
+                        } else {
+                            //blended with other points
+                            float new_inv_weight = 1 / (pixel_weight + 1);
+                            for (int i = 0; i < ndim; ++i) {
+                                d += new_inv_weight * (this_point_data[3 + i] - pixel_weight * pixel_data[i]) * pixel_grad[i];
+                            }
                         }
-                    } else {
-                        //does nothing, as it would be far behind other points, not contribuiting.
-                        d = 0;
                     }
                     return d;
                 };

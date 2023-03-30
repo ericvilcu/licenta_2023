@@ -181,6 +181,7 @@ class trainer():
         self.data=data
         #TODO: split into train and validation. Maybe later.
         self.train_dataloader = DataLoader(self.data.trainImages, batch_size=1, shuffle=True,)
+        self.train_dataloader_iter = spin_iter(self.train_dataloader)
         self.MAX_PIXELS_PER_PLOT=int(1e9)
         self.test_dataloader = DataLoader(self.data.trainImages, batch_size=1, shuffle=False)
         self.test_dataloader_iter = spin_iter(self.test_dataloader)
@@ -220,19 +221,19 @@ class trainer():
     def forward(self,plots:list[torch.Tensor]):
         return self.nn.forward(plots)
     
-    def draw_subplots(self,scene_id:int,cam_type:int,cam_data:list[float],num:int):
+    def draw_subplots(self,scene_id:int,cam_type:int,cam_data:list[float] or torch.Tensor,num:int):
         d=self.data.scenes[scene_id].data
-        points,environment=d.points,d.environment
+        points,environment,environment_type=d.points,d.environment,d.environment_type
         plots:list[torch.Tensor]=[]
         for _unused in range(num):
-            plots.append(renderFunctionSingle.apply(cam_type,cam_data,points,environment))
+            plots.append(renderFunctionSingle.apply(cam_type,cam_data,points,environment_type,environment))
             cam_data=downsize_camera(cam_type,cam_data)
         return plots
-    def train_diff(self,rez:torch.Tensor,target:torch.Tensor,multiplier:float=1):
+    def train_diff(self,rez:torch.Tensor,target:torch.Tensor,mul:float):
         rgb_target=target[::,::,:3:]
         alpha_target=target[::,::,-1::]
         real_src,real_target=rez*alpha_target,rgb_target*alpha_target
-        return {i:loss_functions[i](real_src,real_target)/self.batch_size for i in loss_functions}
+        return {i:mul*loss_functions[i](real_src,real_target) for i in loss_functions}
       
     def _train_one_unsafe(self,scene_id,cam_type,cameras:list[list[list[float]]],target):
         subplots=self.nn.required_subplots()
@@ -243,29 +244,35 @@ class trainer():
                 plots=self.draw_subplots(scene_id,cam_type,pad_camera(camera,self.pad),subplots)
             
                 rez=self.forward(plots)
-                rez=unpad_tensor(rez,self.pad)
+                rez=unpad_tensor(rez,self.pad)*camera[4]
                 
         
-                diff=self.train_diff(rez,tensor_subsection(target,camera),1/(len(cameras)*len(row)))
+                diff=self.train_diff(rez,tensor_subsection(target,camera),1/(len(cameras)*len(row)*self.batch_size))
                 for name in loss_functions:
                     total_diff[name]+=float(diff[name])
                 global get_loss
-                (get_loss(diff)/self.batch_size).backward()
+                get_loss(diff).backward()
                 diff={}
         return total_diff
 
     def size_safe_forward_nograd(self,cam_type:int,camera_data:list[float],scene:int):
         with torch.no_grad():
             #todo? image split if necessary?
+            lum=camera_data[4]
             subplots=self.draw_subplots(scene,cam_type,pad_camera(camera_data,self.pad),self.nn.required_subplots())
-            return unpad_tensor(self.forward(subplots),self.pad)
+            img_float=unpad_tensor(self.forward(subplots),self.pad)
+            if(lum<=0):
+                lum=2/img_float.mean()
+            return img_float*lum
         
     
     def train_one_batch(self):
         try:
             diff={name:0 for name in loss_functions}
             for i in range(self.batch_size):
-                scene_id,cam_type,camera,target,=next(iter(self.train_dataloader))
+                scene_id,cam_type,camera,target,updater=next(iter(self.train_dataloader_iter))
+                camera=camera[0]
+                camera.requires_grad=args.improve_cameras
                 target=torch.squeeze(target,0)
                 cam_type=int(cam_type)
                 W,H=camera[2],camera[3]
@@ -277,8 +284,11 @@ class trainer():
                 local_diff=self._train_one_unsafe(scene_id,cam_type,cams,target)
                 for name in loss_functions:
                     diff[name]+=float(local_diff[name])
+                if(type(camera)==torch.Tensor):
+                    if(camera.grad!=None):
+                        #TODO: get rid of magic number, somehow.
+                        dataSet.camera_updater(**updater)(camera+camera.grad*1e-5)
                 local_diff={}
-                #TODO: also implement batches
             self.optim.step()
         except Exception as e:
             if(type(e)==torch.cuda.OutOfMemoryError):
@@ -298,28 +308,13 @@ class trainer():
         self.report_batches+=1
         global TOTAL_BATCHES_THIS_RUN
         TOTAL_BATCHES_THIS_RUN+=1
-    
-    def example(self):
-        try:
-            scene_id,cam_type,camera,target,=next(iter(self.train_dataloader))
-            W,H=camera[2],camera[3]
-            pass
-        except Exception as e:
-            if(type(e)==torch.cuda.OutOfMemoryError):
-                print("Memory error:",e,f"occurred, decreasing self.MAX_PIXELS_PER_PLOT to {W*H-1}")
-                self.MAX_PIXELS_PER_PLOT=int(W*H-1)
-            elif(str(e)=="Unable to find a valid cuDNN algorithm to run convolution"):
-                print("Weird cuDNN error:",e,f"occurred, assuming it's because of memory and decreasing self.MAX_PIXELS_PER_PLOT to {W*H-1}")
-                self.MAX_PIXELS_PER_PLOT=int(W*H-1)
-            else:raise e
-            if(self.MAX_PIXELS_PER_PLOT<self.pad):raise Exception("MAX_PIXELS_PER_PLOT decreased too much. Your nn might be too big to fit in your GPU memory")
         
     def display_results_to_renderer(self,r:GLRenderer.Renderer,points_view,target_view,result_view):
-        scene_id,cam_type,camera,target,=self.test_dataloader_iter.next()
+        scene_id,cam_type,camera,target,*unused=self.test_dataloader_iter.next()
         target=torch.squeeze(target,0)
         cam_type=int(cam_type)
         #TODO: ensure plot does not crash due to image size.
-        plots=self.draw_subplots(scene_id,cam_type,camera,self.nn.required_subplots())
+        plots=self.draw_subplots(scene_id,cam_type,camera[0] if camera.size(0)==1 else camera,self.nn.required_subplots())
         r.upload_tensor(points_view,plots[0])
         result = self.nn.forward(plots)
         r.upload_tensor(target_view,target)
@@ -359,5 +354,4 @@ class trainer_thread(Thread):
                 last_report=e
                 self.parent.report_losses={}
                 self.parent.report_batches=0
-                
         kernelItf.cleanup()

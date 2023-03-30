@@ -85,33 +85,32 @@ def patchImages(cameras_txt,images_txt,custom_bin_image_folder,overwrite=False,i
             t=1
             w,h,fx,ppx,ppy,k1=map(float,cam[2:])
             w0=h0=0
-            fy=fx;k2=0
+            fy=fx;k2=0.
         else:raise f"{type} is an unknown camera type."
         if(autoReorder):
             path_to_patch=os.path.join(custom_bin_image_folder,str(IDX)+end)
             IDX+=1
         else: path_to_patch=os.path.join(custom_bin_image_folder,no_extension(img_name)+end)
+        lum=1.0
         if(not overwrite):
             if os.path.exists(path_to_patch):
                 with open(path_to_patch,"r+b") as f:
                     f.write(struct.pack("i",t))
                     f.write(struct.pack("IIII",int(w0),int(h0),int(w),int(h)))
-                    if(t==0):#Note: changing camera models with patch destroys stuff, but since I'm not really using patch mode anymore, that may be ok.
-                        f.write(struct.pack("f"*12,*chain(*rotation_mat),*translation))
-                        f.write(struct.pack(4*"f",ppy,ppx,fy,fx))
+                    f.write(struct.pack("f"*13,lum,*chain(*rotation_mat),*translation))
+                    if(t==0):#Note: changing camera models with patch destroys stuff if its dimensions change, but since I'm not really using patch mode anymore, that may be ok.
+                        f.write(struct.pack(4*"f",ppx,ppy,fx,fy))
                     elif(t==1):
-                        f.write(struct.pack("f"*12,*chain(*rotation_mat),*translation))
-                        f.write(struct.pack(6*"f",ppy,ppx,fy,fx,k1,k2))
+                        f.write(struct.pack(6*"f",ppx,ppy,fx,fy,k1,k2))
         else:
             with open(path_to_patch,"wb") as f:
                 f.write(struct.pack("i",t))
                 f.write(struct.pack("IIII",int(w0),int(h0),int(w),int(h)))
-                if(t==0):
-                    f.write(struct.pack("f"*12,*chain(*rotation_mat),*translation))
-                    f.write(struct.pack(4*"f",ppy,ppx,fy,fx))
+                f.write(struct.pack("f"*13,lum,*chain(*rotation_mat),*translation))
+                if(t==0):#Note: changing camera models with patch destroys stuff, but since I'm not really using patch mode anymore, that may be ok.
+                    f.write(struct.pack(4*"f",ppx,ppy,fx,fy))
                 elif(t==1):
-                    f.write(struct.pack("f"*12,*chain(*rotation_mat),*translation))
-                    f.write(struct.pack(6*"f",ppy,ppx,fy,fx,k1,k2))
+                    f.write(struct.pack(6*"f",ppx,ppy,fx,fy,k1,k2))
                 n=h
                 m=w
                 from PIL import Image

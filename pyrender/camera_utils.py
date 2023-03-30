@@ -3,13 +3,13 @@
 
 
 def downsize_pinhole(cam_data:list[float])->list[float]:
-    w0,h0,w,h,r1,r2,r3,r4,r5,r6,r7,r8,r9,t1,t2,t3,fx,fy,ppx,ppy= \
+    w0,h0,w,h,lum,r1,r2,r3,r4,r5,r6,r7,r8,r9,t1,t2,t3,fx,fy,ppx,ppy= \
         cam_data
-    fx/=2;fy/=2
-    ppx/=2;ppy/=2
+    fx=fx/2;fy=fy/2
+    ppx=ppx/2;ppy=ppy/2
     w0=int(w0/2);w=int(w/2)
     h0=int(h0/2);h=int(h/2)
-    return [w0,h0,w,h,r1,r2,r3,r4,r5,r6,r7,r8,r9,t1,t2,t3,fx,fy,ppx,ppy]
+    return torch.tensor([w0,h0,w,h,lum,r1,r2,r3,r4,r5,r6,r7,r8,r9,t1,t2,t3,fx,fy,ppx,ppy])
 
 downsize_functions={
     0:downsize_pinhole
@@ -18,7 +18,7 @@ downsize_functions={
 def downsize_camera(cam_type:int,cam_data:list[float]):
     return downsize_functions[int(cam_type)](cam_data)
 def pad_camera(cam_data:list[float],pad):
-    copy=[float(i) for i in cam_data]#cam_data.copy()
+    copy=[float(i) for i in cam_data] if type(cam_data)==list else cam_data.clone()
     copy[0]-=pad
     copy[1]-=pad
     copy[2]+=2*pad
@@ -48,7 +48,7 @@ def best_split_camera(camera,MAX_PIXELS_PER_PLOT,expected_pad=0):
     for i in range(wm): 
         row=[]
         for j in range(hm): 
-            cpy=[float(i) for i in camera]
+            cpy=[float(i) for i in camera] if type(camera)==list else camera.clone()
             w0,h0,w1,h1=(W0+(i)*H//wm),(H0+(j)*H//hm),(W0+(i+1)*W//wm),(H0+(j+1)*H//hm)
             w,h=w1-w0,h1-h0
             cpy[0]=w0

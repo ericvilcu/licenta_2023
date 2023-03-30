@@ -49,7 +49,7 @@ def assemble_source(m:str):
         ["#define "+i.replace('=',' ')+'\n' for i in MACROS]
     )
     #Here we would put headers if we had any important ones    
-    src = macros+open(f"cuda_kernels/cameras.cuh").read()+'\n'+open(f"cuda_kernels/{d[0]}.cu").read()
+    src = macros+open(f"cuda_kernels/cameras.cuh").read()+'\n'+open(f"cuda_kernels/environments.cuh").read()+'\n'+open(f"cuda_kernels/{d[0]}.cu").read()
     return src
 from pycuda._driver import Function as pyf
 import threading
@@ -104,7 +104,7 @@ def gpu_array(tensor):
     return GPUArray(tensor.shape, dtype=np.float32,
                          gpudata=tensor.data_ptr())
 
-def plotSinglePointsToTensor(cam_type:int,cam_data:(torch.Tensor or list[float]), points:torch.Tensor, env:torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+def plotSinglePointsToTensor(cam_type:int,cam_data:(torch.Tensor or list[float]), points:torch.Tensor, environment_type:int, env:torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
     cam_type=int(cam_type)
     ndim=points.shape[-1]-3
     w,h=map(int,cam_data[2:4])
@@ -117,7 +117,7 @@ def plotSinglePointsToTensor(cam_type:int,cam_data:(torch.Tensor or list[float])
     assert(points.is_contiguous())
     assert(env.is_contiguous())
     
-    module_name=f"plot CAM_TYPE={cam_type} NDIM={ndim} STRUCTURAL_REFINEMENT={int(args.STRUCTURAL_REFINEMENT)}"
+    module_name=f"plot CAM_TYPE={cam_type} NDIM={ndim} STRUCTURAL_REFINEMENT={int(args.STRUCTURAL_REFINEMENT)} ENVIRONMENT_TYPE={environment_type}"
     plot_points = get_kernel(module_name,"plot")
     determine_depth = get_kernel(module_name,"determine_depth")
     bundle = get_kernel(module_name,"bundle")
@@ -148,15 +148,17 @@ def plotSinglePointsToTensor(cam_type:int,cam_data:(torch.Tensor or list[float])
     bundle(
         gpu_array(plot),
         gpu_array(weights),
+        gpu_array(env),
         np.int32(h),
         np.int32(w),
+        gpu_array(gpu_cam_data),
         grid=(1+(h-1//square_max_thread_size[0]),1+(w-1//square_max_thread_size[1]),1),
         block=square_max_thread_size
     )
     drv.Context.synchronize()
     return plot,weights
 
-def plotSinglePointsBackwardsToTensor(weights:torch.Tensor,cam_type:int,cam_data:list[float],points:torch.Tensor,environment:torch.Tensor,plot:torch.Tensor,plot_grad:torch.Tensor):
+def plotSinglePointsBackwardsToTensor(weights:torch.Tensor,cam_type:int,cam_data:list[float],points:torch.Tensor,environment_type:int,environment:torch.Tensor,plot:torch.Tensor,plot_grad:torch.Tensor):
     cam_type=int(cam_type)
     ndim=points.shape[-1]-3
     w,h=map(int,cam_data[2:4])
@@ -167,7 +169,7 @@ def plotSinglePointsBackwardsToTensor(weights:torch.Tensor,cam_type:int,cam_data
     num_points = points.shape[0]
     assert(points.is_contiguous())
     assert(environment.is_contiguous())
-    module_name=f"plot CAM_TYPE={cam_type} NDIM={ndim} STRUCTURAL_REFINEMENT={int(args.STRUCTURAL_REFINEMENT)}"
+    module_name=f"plot CAM_TYPE={cam_type} NDIM={ndim} STRUCTURAL_REFINEMENT={int(args.STRUCTURAL_REFINEMENT)} ENVIRONMENT_TYPE={environment_type}"
     
     cam_data_grad=torch.zeros_like(cam_data)
     points_grad=torch.zeros_like(points)
@@ -183,6 +185,7 @@ def plotSinglePointsBackwardsToTensor(weights:torch.Tensor,cam_type:int,cam_data
         grid=(1+((num_points-1)//max_threads),1,1),
         block=line_max_threads
     )
+    #TODO: backward environment
     
     return cam_data_grad,points_grad,environment_grad
 

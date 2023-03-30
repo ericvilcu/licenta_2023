@@ -7,7 +7,6 @@ import torch
 print("torch imported")
 import trainer
 
-
 from GLRenderer import Renderer
 from time import time,sleep
 from renderModule import renderModule
@@ -37,7 +36,7 @@ print("workspace loaded...")
 ds = t.data
 
 if(args.live_render):
-    r = Renderer()
+    r = Renderer(**{'w':int(args.width),'h':int(args.height)})
     r.removeView('main')
     r.createView('interactive',0.,0.,.5,.5,0,True)
     r.createView('target'     ,.5,0.,1.,.5,0,True)
@@ -95,6 +94,9 @@ try:
 except KeyboardInterrupt as ex:
     print(ex)
     print("KeyboardInterrupt detected, stopping and saving...")
+except Exception as ex:
+    print(repr(ex),ex.__traceback__)
+    raise ex
 finally:
     
     if(args.train):
