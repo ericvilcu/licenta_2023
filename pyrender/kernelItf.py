@@ -99,12 +99,20 @@ def get_kernel(m:str,f:str) -> pyf:
 
 from pycuda.gpuarray import GPUArray
 import numpy as np
-
+def null_array():
+    return GPUArray((0,), dtype=np.float32,
+                         gpudata=0)
 def gpu_array(tensor):
     return GPUArray(tensor.shape, dtype=np.float32,
                          gpudata=tensor.data_ptr())
 
+LAST_DBG=0
+
 def plotSinglePointsToTensor(cam_type:int,cam_data:(torch.Tensor or list[float]), points:torch.Tensor, environment_type:int, env:torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+    #TODO: remove some of the debug stuff.
+    # global LAST_DBG
+    # DBG_POSITIONS=torch.zeros((2*points.size(0),),dtype=torch.int32,device='cuda').contiguous()
+    #pydev_do_not_trace=False
     cam_type=int(cam_type)
     ndim=points.shape[-1]-3
     w,h=map(int,cam_data[2:4])
@@ -141,6 +149,7 @@ def plotSinglePointsToTensor(cam_type:int,cam_data:(torch.Tensor or list[float])
         gpu_array(points),
         np.int32(num_points),
         gpu_array(gpu_cam_data),
+        # gpu_array(DBG_POSITIONS),
         grid=(1+((num_points-1)//max_threads),1,1),
         block=line_max_threads
     )
@@ -155,10 +164,17 @@ def plotSinglePointsToTensor(cam_type:int,cam_data:(torch.Tensor or list[float])
         grid=(1+(h-1//square_max_thread_size[0]),1+(w-1//square_max_thread_size[1]),1),
         block=square_max_thread_size
     )
+    # if(cam_data[2]>=1370):
+    #     #print(str(threading.currentThread().getName()),DBG_POSITIONS.float().mean(),DBG_POSITIONS.data_ptr())
+    #     LAST_DBG=DBG_POSITIONS
     drv.Context.synchronize()
     return plot,weights
 
 def plotSinglePointsBackwardsToTensor(weights:torch.Tensor,cam_type:int,cam_data:list[float],points:torch.Tensor,environment_type:int,environment:torch.Tensor,plot:torch.Tensor,plot_grad:torch.Tensor):
+    #TODO: delete debug stuff.
+    # DBG_POSITIONS=torch.zeros((2*points.size(0),),dtype=torch.int32,device='cuda').contiguous()
+    #if(cam_data[2]<1370):
+    #    return None,None,None
     cam_type=int(cam_type)
     ndim=points.shape[-1]-3
     w,h=map(int,cam_data[2:4])
@@ -175,18 +191,42 @@ def plotSinglePointsBackwardsToTensor(weights:torch.Tensor,cam_type:int,cam_data
     points_grad=torch.zeros_like(points)
     environment_grad=torch.zeros_like(environment)
     
+    #per-plotted point backward
     backward = get_kernel(module_name,"backward")
+    #per-pixel backward
+    backward_pixel = get_kernel(module_name,"backward_pixel")
     
+    #could run in parallel?
     backward(
         gpu_array(cam_data_grad),
-        gpu_array(gpu_cam_data), np.int32(ndim),
+        gpu_array(gpu_cam_data),
         gpu_array(points_grad),gpu_array(points), np.int32(num_points),
         gpu_array(plot), gpu_array (plot_grad), gpu_array(weights),
+        # gpu_array(DBG_POSITIONS),
         grid=(1+((num_points-1)//max_threads),1,1),
         block=line_max_threads
     )
-    #TODO: backward environment
+    # delta=(LAST_DBG-DBG_POSITIONS).float().mean()
+    # if(delta!=0.0):
+    #     print('b'+str(threading.currentThread().getName()),DBG_POSITIONS.float().mean(),DBG_POSITIONS.data_ptr())
+    #     print('bd'+str(threading.currentThread().getName()),(LAST_DBG-DBG_POSITIONS).float().mean(),LAST_DBG.data_ptr())
     
+    
+    backward_pixel(
+        gpu_array(cam_data_grad),
+        gpu_array(gpu_cam_data),
+        gpu_array(plot), gpu_array (plot_grad), gpu_array(weights),
+        np.int32(h),np.int32(w),
+        gpu_array(environment_grad),gpu_array(environment),
+        grid=(1+((num_points-1)//max_threads),1,1),
+        block=line_max_threads
+    )
+    
+    drv.Context.synchronize()
+    
+    if(points_grad.isnan().any()):
+        print("BACKWARD RETURNED NANs!")
+        return None,None,None
     return cam_data_grad,points_grad,environment_grad
 
 #This almost feels like a hack

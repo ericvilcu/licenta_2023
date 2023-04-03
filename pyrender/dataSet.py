@@ -18,6 +18,7 @@ class learnableData(torch.nn.Module):
                 points = torch.load(fn+"/points")
                 environment = torch.load(fn+"/environment")
             else: raise Exception("dataset location was invalid")
+            #points[::,3:]+=torch.rand_like(points[::,3:])*1e-3
         else:
             points = points
             environment = env
@@ -48,15 +49,15 @@ class learnableData(torch.nn.Module):
         self.register_parameter("points",param=torch.nn.Parameter(points))
         self.points:torch.Tensor=self.points
         
-        self.points.requires_grad = True
-        self.environment.requires_grad = True
+        self.points.requires_grad = args.refine_points
+        self.environment.requires_grad = args.refine_points
         
     def save(self,path):
         points_path=os.path.join(path,"points.bin")
         environment_path=os.path.join(path,"environment.bin")
         customSer.to_bin(self.points,points_path)
         customSer.to_bin(self.environment,environment_path)
-        
+
 
 class Scene(torch.nn.Module):
     def __init__(self,fn:str=None,points:torch.Tensor=None,env:torch.Tensor=None,force_ndim=None) -> None:
@@ -78,7 +79,7 @@ class Scene(torch.nn.Module):
             old_images_dir=os.path.join(self.path,"train_images")
             for i in os.listdir(old_images_dir):
                 shutil.copy(os.path.join(old_images_dir,i),images_path)
-        
+
 
 
 class DataSet(torch.nn.Module):
@@ -88,7 +89,7 @@ class DataSet(torch.nn.Module):
             self.scenes = torch.nn.ModuleList(modules)
         else:
             self.scenes = torch.nn.ModuleList(map(lambda path:Scene(fn=path,force_ndim=force_ndim),scenes))
-        for i,scene in enumerate(self.scenes):self.register_module(f"scene{i}",scene)
+        #for i,scene in enumerate(self.scenes):self.register_module(f"scene{i}",scene)
         self.trainImages=TrainImages(self)
     def save_to(self,path:str):
         for idx,scene in enumerate(self.scenes):

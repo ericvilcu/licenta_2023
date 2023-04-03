@@ -16,7 +16,10 @@ ssim_module=StructuralSimilarityIndexMeasure().cuda()
 lpips_module=LearnedPerceptualImagePatchSimilarity(net_type='alex').cuda()
 vgg_module=LearnedPerceptualImagePatchSimilarity(net_type='vgg').cuda()
 squeeze_module=LearnedPerceptualImagePatchSimilarity(net_type='squeeze').cuda()
-
+used_optim=torch.optim.Adam
+LR_NN=1e-2
+LR_DS=1e-4
+LR_CAM=1e-5
 TOTAL_BATCHES_THIS_RUN=0
 
 def make_ch_first(x:torch.Tensor):
@@ -175,9 +178,12 @@ from torch.utils.data import DataLoader
 from camera_utils import best_split_camera,downsize_camera,pad_camera,unpad_tensor,put_back_together,tensor_subsection
 class trainer():
     def __init__(self,data:dataSet.DataSet,nn:MainModule=None,optim:torch.optim.Adam=None,**options) -> None:
-        self.nn: MainModule = MainModule(**options).cuda() if nn==None else nn.cuda()
+        self.nn: MainModule = (MainModule(**options).cuda() if nn==None else nn.cuda()).requires_grad_(args.nn_refinement)
         self.pad = int(options['start_padding']) if 'start_padding' in options else int(2**self.nn.required_subplots())
-        self.optim = torch.optim.Adam([*self.nn.parameters(),*data.parameters()],lr=1e-2)if optim==None else optim
+        
+        self.optim=used_optim([
+            {'params':self.nn.parameters()},{'params':data.parameters(),'lr':LR_DS}
+        ],lr=LR_NN) if optim==None else optim
         self.data=data
         #TODO: split into train and validation. Maybe later.
         self.train_dataloader = DataLoader(self.data.trainImages, batch_size=1, shuffle=True,)
@@ -211,7 +217,9 @@ class trainer():
         data_path=os.path.join(path,"data")
         data=dataSet.DataSet.load(data_path)
         nn:MainModule=torch.load(os.path.join(path,"model"))
-        optim=torch.optim.Adam([*nn.parameters(),*data.parameters()])
+        optim=used_optim([
+            {'params':nn.parameters()},{'params':data.parameters(),'lr':LR_DS}
+        ],lr=LR_NN)
         optim.load_state_dict(torch.load(os.path.join(path,"optim"))['optim'])
         optim.zero_grad()
         t=trainer(data=data,nn=nn,optim=optim,**args,empty=True)
@@ -237,7 +245,7 @@ class trainer():
       
     def _train_one_unsafe(self,scene_id,cam_type,cameras:list[list[list[float]]],target):
         subplots=self.nn.required_subplots()
-        total_diff={name:0 for name in loss_functions}
+        total_diff={name:0. for name in loss_functions}
         for row in cameras:
             for cell in row:
                 camera=cell
@@ -284,10 +292,10 @@ class trainer():
                 local_diff=self._train_one_unsafe(scene_id,cam_type,cams,target)
                 for name in loss_functions:
                     diff[name]+=float(local_diff[name])
-                if(type(camera)==torch.Tensor):
+                if(args.camera_refinement and type(camera)==torch.Tensor):
                     if(camera.grad!=None):
                         #TODO: get rid of magic number, somehow.
-                        dataSet.camera_updater(**updater)(camera+camera.grad*1e-5)
+                        dataSet.camera_updater(**updater)(camera+camera.grad*LR_CAM)
                 local_diff={}
             self.optim.step()
         except Exception as e:
@@ -308,6 +316,7 @@ class trainer():
         self.report_batches+=1
         global TOTAL_BATCHES_THIS_RUN
         TOTAL_BATCHES_THIS_RUN+=1
+        return get_loss(diff)
         
     def display_results_to_renderer(self,r:GLRenderer.Renderer,points_view,target_view,result_view):
         scene_id,cam_type,camera,target,*unused=self.test_dataloader_iter.next()
@@ -329,9 +338,23 @@ class trainer():
         self.tt.should_stop_training=True#not a data race due to GIL, but even if it was the consequences would not be disastrous.
         self.tt.join()
         del self.tt
+
+if(args.stagnation_batches!=-1):
+    ln=[1e20]*args.stagnation_batches
+    cn=[1e10]*args.stagnation_batches
+    stagnated:bool=False
+    def append_loss_history(l:float):
+        global ln,cn,stagnated
+        ln=ln[1:]+[cn[0]]
+        cn=cn[1:]+[l]
+        stagnated=sum(cn)*(1+args.stagnation_p)>sum(ln)
+        if(stagnated):
+            print("NN improvement seems to have stagnated...")
+    def is_stagnant() -> bool:
+        return stagnated
 import kernelItf
 class trainer_thread(Thread):
-    def __init__(self,parent,report_freq=60) -> None:
+    def __init__(self,parent,report_freq=20) -> None:
         super().__init__()
         self.should_stop_training=False
         self.report_freq=report_freq
@@ -343,7 +366,7 @@ class trainer_thread(Thread):
         kernelItf.initialize()
         last_report=s=time()
         while(not self.should_stop_training):
-            self.parent.train_one_batch()
+            loss_this_batch=self.parent.train_one_batch()
             e=time()
             if(e-last_report>self.report_freq or self.should_stop_training and self.parent.report_batches>0):
                 l={loss:float(self.parent.report_losses[loss]/self.parent.report_batches) for loss in self.parent.report_losses}
@@ -354,4 +377,6 @@ class trainer_thread(Thread):
                 last_report=e
                 self.parent.report_losses={}
                 self.parent.report_batches=0
+            if(args.stagnation_batches!=-1):
+                append_loss_history(loss_this_batch)
         kernelItf.cleanup()

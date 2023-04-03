@@ -202,11 +202,21 @@ class Renderer():
         flg=sdl2.SDL_WINDOW_MINIMIZED
         return 0!=(flags&flg)
     
-    def sleep_until_not_minimized(self):
+    def sleep_until_not_minimized(self,max_t:float=-1):
         self.ensureGL()
-        while(self.is_window_minimized()):
-            event=sdl2.SDL_Event()
-            sdl2.SDL_WaitEvent(event)
+        if(max_t==0):
+            while(self.is_window_minimized()):
+                self.ensureGL()
+                event=sdl2.SDL_Event()
+                sdl2.SDL_WaitEvent(event)
+        else:
+            import time
+            e=s=time.time()
+            while(self.is_window_minimized() and e<=s+max_t):
+                self.ensureGL()
+                event=sdl2.SDL_Event()
+                sdl2.SDL_WaitEventTimeout(event,int((e-s+max_t)*1e3))
+                e=time.time()
         
     def upload_rgb(self,view_name:str,rgb):
         """WARNING: slow use for testing only

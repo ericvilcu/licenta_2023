@@ -21,8 +21,9 @@ parser.add_argument('--base_nn',default='',required=False,help="Where to load a 
 parser.add_argument('--notrain',action='store_true',default=False,required=False,help="Specifies to not train the neural network")
 parser.add_argument('--batch_size',default='',required=False,help="Overrides default batch size(default is the dataset size)")
 #not sure if I even want to train w/ those two.
-#parser.add_argument('--no_nn_refinement',default=False,required=False,action='store_true',help="Specifies to not improve the nn")
-#parser.add_argument('--no_point_refinement',default=False,required=False,action='store_true',help="Specifies to not improve point colors/positions")
+parser.add_argument('--no_camera_refinement',default=False,required=False,action='store_true',help="Specifies to not improve the camera positions.")
+parser.add_argument('--no_nn_refinement',default=False,required=False,action='store_true',help="Specifies to not improve the nn")
+parser.add_argument('--no_point_refinement',default=False,required=False,action='store_true',help="Specifies to not improve point colors/positions")
 parser.add_argument('--structural_refinement',default=False,required=False,action='store_true',help="Specifies to use structural refinement")
 parser.add_argument('--loss_type',default='',help="Specifies which loss backward should be called for.")
 
@@ -31,10 +32,15 @@ parser.add_argument('--norender',action='store_true',default=False,required=Fals
 parser.add_argument('-W','--width',default='',required=False,help="Specifies window width")
 parser.add_argument('-H','--height',default='',required=False,help="Specifies window height")
 parser.add_argument('--example_interval',default='-1',required=False,help="Specifies the interval to wait before showing a new example image. (default is 4.0 if training, 0.5 otherwise)")
+#samples
+#parser.add_argument('--sample_folder',default='-1',required=False,help="Specifies where to save samples")
+#parser.add_argument('--samples_every',default='-1',required=False,help="Specifies the # of batches to save an image at. requires sample_folder")
 
 #timeout/shutdown
+#TODO: do something with lambdas to make timeout simpler.
 parser.add_argument('--timeout',required=False,default='-1.0',help="Specifies how much time the program should automatically close in.")
 parser.add_argument('--max_batches',required=False,default='-1.0',help="Specifies many batches the nn should train for before the application closes itself. Note: may sometimes train slightly more than the specified amount.")
+parser.add_argument('--stagnation',required=False,default=('-1','-1'),nargs=2,help=r"Specifies the number of batches to look back on and average, as well as the % of change that is considered insignificant. For example, '--stagnation 10 0.01' means, naming the last 10 batches' average c and the average of the 10 batches before l, to stop when c*(1+0.01)>l")
 
 raw_args=parser.parse_args()
 
@@ -51,10 +57,14 @@ make_workspace:bool = raw_args.make_workspace
 workspace:str = raw_args.workspace
 improve_cameras=True
 main_loss:str=raw_args.loss_type
+refine_points = not raw_args.no_point_refinement
+nn_refinement = not raw_args.no_nn_refinement
+camera_refinement = not raw_args.no_camera_refinement
 
 timeout=(float(raw_args.timeout)>0)
 timeout_s=float(raw_args.timeout)
 max_batches = float(raw_args.max_batches)
+stagnation_batches,stagnation_p=int(raw_args.stagnation[0]),float(raw_args.stagnation[0])
 
 STRUCTURAL_REFINEMENT=raw_args.structural_refinement
 

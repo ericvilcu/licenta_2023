@@ -18,7 +18,7 @@ __hdfi__ float3 norm(float3 data){
 #if ENVIRONMENT_TYPE==-1
 __hdfi__ void sample_environment(float* out,const float* environment_data,float3 direction){
     for (int i = 0; i <= NDIM; ++i)
-        out[i] = 0;
+        out[i] = -1;
 }
 
 __hdfi__ void backward_environment(const float* pixel_grad, const float* environment_data, float* environment_grad,float3 direction){
@@ -26,7 +26,20 @@ __hdfi__ void backward_environment(const float* pixel_grad, const float* environ
 #endif
 
 #if ENVIRONMENT_TYPE==0
-//Environment type 0 is meant to be the kind of environment game engines provide.
+//Environment type 0 is 1 solid color.
+__hdfi__ void sample_environment(float* out,const float* environment_data,float3 direction){
+    for (int i = 0; i <= NDIM; ++i)
+        out[i] = environment_data[i];
+}
+
+__hdfi__ void backward_environment(const float* pixel_grad, const float* environment_data, float* environment_grad,float3 direction){
+    for (int i = 0; i <= NDIM; ++i)
+        environment_grad[i] = pixel_grad[i];
+}
+#endif
+
+#if ENVIRONMENT_TYPE==1
+//Environment type 1 is meant to be the kind of environment game engines provide.
 //It should have the following parameters:
 constexpr int GROUND1_IDX=0;
 // 1. ground color (close)    (NDIM+1) [1->NDIM+1]
@@ -112,7 +125,8 @@ __hdfi__ void backward_environment(const float* pixel_grad, const float* environ
 }
 #endif
 
-#if ENVIRONMENT_TYPE==1
+//todo: cubemap?
+#if ENVIRONMENT_TYPE==2
 #ifndef ENVIRONMENT_RESOLUTION
 #define ENVIRONMENT_RESOLUTION 1024
 #endif
