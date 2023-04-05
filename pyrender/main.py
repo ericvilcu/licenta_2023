@@ -114,6 +114,7 @@ except KeyboardInterrupt as ex:
     print("KeyboardInterrupt detected, stopping and saving...")
 except Exception as ex:
     print(repr(ex),ex.__traceback__)
+    args.full_samples_final=False#If it crashed, we probably shouldn't
     raise ex
 finally:
     
@@ -124,5 +125,7 @@ finally:
     print("Saving...")
     t.save(args.workspace)
 
+    if(args.full_samples_final):
+        t.save_all_samples()
     print("Cleanup...")
     kernelItf.cleanup()

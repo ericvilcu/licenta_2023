@@ -18,4 +18,6 @@ class spin_iter(Generic[_T]):
         
     def __next__(self):
         return self.next()
-            
+    
+    def __len__(self):
+        return len(self.col)

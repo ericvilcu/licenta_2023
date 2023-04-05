@@ -66,20 +66,21 @@ void __global__ plot(float* output, float* weights, const float* points, int num
         //ScreenCoordsWithDepth d = camera.mapToScreenCoords(make_float4(this_point_data[0], -this_point_data[1], this_point_data[2], 1));
         auto rez = camera.mapToScreenCoords(position);
         int2 screen_coords = rez.coords;
+        int pixel = screen_coords.x + screen_coords.y * w;
         //if(dbg0!=NULL){dbg0[2*idx]=screen_coords.x;dbg0[2*idx+1]=screen_coords.y;}
         float depth = rez.depth;
         if (!rez.valid)return;
-        const float pixel_depth = output[(NDIM + 1) * (screen_coords.x + screen_coords.y * w) + NDIM];
+        const float pixel_depth = output[(NDIM + 1) * pixel + NDIM];
         //todo: move depth test to a header or other special function
         float weight = test_depth(depth,pixel_depth);
         if (weight<=0)
             return;
         #pragma unroll
         for (int i = 0; i < NDIM; ++i) {
-            float* p = &output[(NDIM + 1) * (screen_coords.x + screen_coords.y * w) + i];
+            float* p = &output[(NDIM + 1) * pixel + i];
             atomicAdd(p, points[pos + 3 + i]);
         }
-        float* pixel_color_weight_location = &weights[screen_coords.x + screen_coords.y * w];
+        float* pixel_color_weight_location = &weights[pixel];
         atomicAdd(pixel_color_weight_location, weight);
     }
 }
@@ -90,16 +91,16 @@ void __global__ bundle(float* plot, float* weights, float* environment_data, con
     int idx = threadIdx.x + blockDim.x * blockIdx.x;
     int idy = threadIdx.y + blockDim.y * blockIdx.y;
     if (idx < h && idy < w) {
-        int ids = idy + idx * w;
-        if (weights[ids] > 0) {
-            int ids_m = ids * (NDIM + 1);
-            float local_weight = weights[ids];
+        int pixel = idy + idx * w;
+        if (weights[pixel] > 0) {
+            int plot_idx = pixel * (NDIM + 1);
+            float local_weight = weights[pixel];
             for (int i = 0; i < NDIM; ++i)
-                plot[ids_m + i] = plot[ids_m + i] / local_weight;
+                plot[plot_idx + i] = plot[plot_idx + i] / local_weight;
         } else {
-            int ids_m = ids * (NDIM + 1);
+            int plot_idx = pixel * (NDIM + 1);
             float3 direction = camera.direction_for_pixel(make_float2(idx+0.5f,idy+0.5f));
-            sample_environment(&plot[ids_m],environment_data,direction);
+            sample_environment(&plot[plot_idx],environment_data,direction);
         }
     }
 }
@@ -119,16 +120,16 @@ void __global__ backward(float* camera_gradient, const float* camera_data, float
             //if(dbg0!=NULL){dbg0[2*idx]=d.coords.x;dbg0[2*idx+1]=d.coords.y;}
             float depth = d.depth;
             float pixel_depth = plot[pixel * (NDIM + 1) + NDIM];
-            //I should probably move the depth test to a shared header, as well as a function for weight (which is currently always 1)
             float weight = test_depth(depth,pixel_depth);
-            if (weight<=0)
-                return;
-            float weight_fraction = 1 / weight;
             const float* grad_start = &plot_grad[pixel * (NDIM + 1)];
             float* point_grad_start = &(point_grad[ids]);
-            float* point_color_grad_start = &(point_grad[ids + 3]);
-            for (int i = 0; i < NDIM; ++i) {
-                point_color_grad_start[i] += grad_start[i] * weight_fraction;//+=0
+            if (weight>0){
+                float pixel_weight = plot_weights[pixel];
+                float weight_fraction = pixel_weight / weight;
+                float* point_color_grad_start = &(point_grad_start[3]);
+                for (int i = 0; i < NDIM; ++i) {
+                    point_color_grad_start[i] += grad_start[i] * weight_fraction;
+                }
             }
             //estimate for point position refinement, based on: https://arxiv.org/pdf/2110.06635.pdf
             //Note: the edges of the image are iffy, so I exclude them.

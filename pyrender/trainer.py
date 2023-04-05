@@ -18,7 +18,7 @@ vgg_module=LearnedPerceptualImagePatchSimilarity(net_type='vgg').cuda()
 squeeze_module=LearnedPerceptualImagePatchSimilarity(net_type='squeeze').cuda()
 used_optim=torch.optim.Adam
 LR_NN=1e-2
-LR_DS=1e-4
+LR_DS=1e-2
 LR_CAM=1e-5
 TOTAL_BATCHES_THIS_RUN=0
 
@@ -339,6 +339,20 @@ class trainer():
         self.tt.join()
         del self.tt
 
+    #image saving stuff
+    def save_one_(self):
+        self.save_one(int(0.33*len(self.data.trainImages)))
+    def save_one(self,id,title=None):
+        from torchvision.utils import save_image
+        scene_id,cam_type,camera,*unused=self.data.trainImages.__getitem__(id)
+        c=self.size_safe_forward_nograd(cam_type,camera,scene_id)
+        if(title==None):
+            title=f"i{id}_b{TOTAL_BATCHES_THIS_RUN}"
+        save_image(c.transpose(-3,-1).transpose(-2,-1),os.path.join(args.sample_folder,title+".png"))
+    def save_all_samples(self):
+        for i in range(len(self.data.trainImages)):
+            self.save_one(i,title=f"final_{i}")
+
 if(args.stagnation_batches!=-1):
     ln=[1e20]*args.stagnation_batches
     cn=[1e10]*args.stagnation_batches
@@ -354,7 +368,7 @@ if(args.stagnation_batches!=-1):
         return stagnated
 import kernelItf
 class trainer_thread(Thread):
-    def __init__(self,parent,report_freq=20) -> None:
+    def __init__(self,parent,report_freq=10) -> None:
         super().__init__()
         self.should_stop_training=False
         self.report_freq=report_freq
@@ -366,6 +380,8 @@ class trainer_thread(Thread):
         kernelItf.initialize()
         last_report=s=time()
         while(not self.should_stop_training):
+            if(args.samples_every>0 and (TOTAL_BATCHES_THIS_RUN%args.samples_every==0)):
+                self.parent.save_one_()
             loss_this_batch=self.parent.train_one_batch()
             e=time()
             if(e-last_report>self.report_freq or self.should_stop_training and self.parent.report_batches>0):
