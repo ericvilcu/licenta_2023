@@ -14,7 +14,7 @@ class renderFunctionSingle(torch.autograd.Function):
     @staticmethod
     def backward(ctx,plot_grad):
         weights,cam_type,camera,points,environment_type,environment,plot = ctx.saved_tensors
-        camera_grad,points_grad,environment_grad=kern.plotSinglePointsBackwardsToTensor(weights,cam_type,camera,points,environment_type,environment,plot,plot_grad)
+        camera_grad,points_grad,environment_grad=kern.plotSinglePointsBackwardsToTensor(weights,cam_type,camera,points,environment_type,environment,plot,plot_grad.contiguous())
         return None,camera_grad if ctx.do_camera_gradient else None,points_grad,None,environment_grad
 
 #Now irrelevant?

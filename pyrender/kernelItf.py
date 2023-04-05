@@ -185,6 +185,7 @@ def plotSinglePointsBackwardsToTensor(weights:torch.Tensor,cam_type:int,cam_data
     num_points = points.shape[0]
     assert(points.is_contiguous())
     assert(environment.is_contiguous())
+    assert(plot_grad.is_contiguous())
     module_name=f"plot CAM_TYPE={cam_type} NDIM={ndim} STRUCTURAL_REFINEMENT={int(args.STRUCTURAL_REFINEMENT)} ENVIRONMENT_TYPE={environment_type}"
     
     cam_data_grad=torch.zeros_like(cam_data)
