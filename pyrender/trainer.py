@@ -90,9 +90,8 @@ class GateModule(torch.nn.Module):
 
 class MainModule(torch.nn.Module):
     
-    def __init__(self,subplots=4,ndim=3,layers=None,kern=3,use_gates=True,inter_ch=16,empty=False,default_path=None,**unused_args):
+    def __init__(self,subplots=4,ndim=3,layers=None,kern=3,use_gates=True,inter_ch=16,empty=False,**unused_args):
         super().__init__()
-        self.default_path=default_path
         if(empty):return
         if(kern%2!=1):
             raise "kernel size must be odd for padding to be able to kee pit constant"
@@ -178,10 +177,10 @@ class MainModule(torch.nn.Module):
 from torch.utils.data import DataLoader
 from camera_utils import best_split_camera,downsize_camera,pad_camera,unpad_tensor,put_back_together,tensor_subsection
 class trainer():
-    def __init__(self,data:dataSet.DataSet,nn:MainModule=None,optim:torch.optim.Adam=None,**options) -> None:
+    def __init__(self,data:dataSet.DataSet,nn:MainModule=None,optim:torch.optim.Adam=None,default_path=None,**options) -> None:
         self.nn: MainModule = (MainModule(**options).cuda() if nn==None else nn.cuda()).requires_grad_(args.nn_refinement)
         self.pad = int(options['start_padding']) if 'start_padding' in options else int(2**self.nn.required_subplots())
-        
+        self.default_path=default_path
         self.optim=used_optim([
             {'params':self.nn.parameters()},{'params':data.parameters(),'lr':LR_DS}
         ],lr=LR_NN) if optim==None else optim
