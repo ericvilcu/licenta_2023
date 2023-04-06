@@ -105,10 +105,10 @@ struct PinholeCameraData:PartialCameraDataTemplate{
 		return transform.unapply_rotation(direction);
 	}
 	__hdfi__ PinholeCameraData(const float* data) {
-        w0=data[0];
-        h0=data[1];
-        w =data[2];
-        h =data[3];
+        w0 =data[0];
+        h0 =data[1];
+        w  =data[2];
+        h  =data[3];
         lum=data[4];
         transform=Transform::from(data+5);
         ppx=data[5+9+3+0];

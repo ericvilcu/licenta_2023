@@ -118,6 +118,10 @@ except Exception as ex:
     raise ex
 finally:
     
+    if(args.live_render):
+        print("Closing window...")
+        r.shutdown()
+    
     if(args.train):
         print("Waiting for last batch to be trained...")
         t.stop_trainer_thread()
@@ -126,6 +130,7 @@ finally:
     t.save(args.workspace)
 
     if(args.full_samples_final):
+        print("Saving all samples (this may take a while)")
         t.save_all_samples()
     print("Cleanup...")
     kernelItf.cleanup()

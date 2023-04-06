@@ -76,8 +76,8 @@ error_test()
 
 
 class GateModule(torch.nn.Module):
-    #suggested to work well in most papers.
-    #first described in: https://arxiv.org/pdf/1806.03589.pdf
+    #suggested to work well in a lot of point-based novel view synthesis papers.
+    #as far as I know, it was first described in: https://arxiv.org/pdf/1806.03589.pdf
     def __init__(self,in_channels,out_channels,kernel_size=(3,3),padding=1,single_gate=True,**kwargs):
         super().__init__()
         self.main=torch.nn.Conv2d(in_channels,out_channels,kernel_size=kernel_size,padding=padding,**kwargs)
@@ -90,8 +90,9 @@ class GateModule(torch.nn.Module):
 
 class MainModule(torch.nn.Module):
     
-    def __init__(self,subplots=4,ndim=3,layers=None,kern=3,use_gates=True,inter_ch=16,empty=False,**unused_args):
+    def __init__(self,subplots=4,ndim=3,layers=None,kern=3,use_gates=True,inter_ch=16,empty=False,default_path=None,**unused_args):
         super().__init__()
+        self.default_path=default_path
         if(empty):return
         if(kern%2!=1):
             raise "kernel size must be odd for padding to be able to kee pit constant"
@@ -196,7 +197,11 @@ class trainer():
         self.report_losses={}
         self.report_batches=0
     
-    def save(self,path:str):
+    def save(self,path:str=None):
+        if(path==None):
+            path=self.default_path
+        if(path==None):
+            raise Exception("Please provide a path if the nn was not loaded")
         if(not os.path.isdir(path)):
             if(os.path.exists(path)):
                 raise Exception(f"Path {path} is invalid.")
@@ -222,7 +227,7 @@ class trainer():
         ],lr=LR_NN)
         optim.load_state_dict(torch.load(os.path.join(path,"optim"))['optim'])
         optim.zero_grad()
-        t=trainer(data=data,nn=nn,optim=optim,**args,empty=True)
+        t=trainer(data=data,nn=nn,optim=optim,**args,empty=True,default_path=path)
         return t
         
         
@@ -348,7 +353,7 @@ class trainer():
         c=self.size_safe_forward_nograd(cam_type,camera,scene_id)
         if(title==None):
             title=f"i{id}_b{TOTAL_BATCHES_THIS_RUN}"
-        save_image(c.transpose(-3,-1).transpose(-2,-1),os.path.join(args.sample_folder,title+".png"))
+        save_image(c.transpose(-3,-1).transpose(-2,-1),os.path.join(args.sample_folder,args.sample_prefix+title+".png"))
     def save_all_samples(self):
         for i in range(len(self.data.trainImages)):
             self.save_one(i,title=f"final_{i}")
@@ -378,7 +383,7 @@ class trainer_thread(Thread):
         self.parent.nn.train()
         self.parent.data.train()
         kernelItf.initialize()
-        last_report=s=time()
+        last_save=last_report=s=time()
         while(not self.should_stop_training):
             if(args.samples_every>0 and (TOTAL_BATCHES_THIS_RUN%args.samples_every==0)):
                 self.parent.save_one_()
@@ -393,6 +398,9 @@ class trainer_thread(Thread):
                 last_report=e
                 self.parent.report_losses={}
                 self.parent.report_batches=0
+            if(e-last_save>args.autosave_s):
+                print("autosaving...")
+                self.parent.save()
             if(args.stagnation_batches!=-1):
                 append_loss_history(loss_this_batch)
         kernelItf.cleanup()

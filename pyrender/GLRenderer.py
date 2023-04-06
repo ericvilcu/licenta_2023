@@ -59,6 +59,9 @@ class Renderer():
         gl.glBufferData(gl.GL_ARRAY_BUFFER, struct.pack(len(pos)*'f',*pos), gl.GL_STATIC_DRAW)
         self.update()
         return
+    def shutdown(self):
+        sdl2.SDL_DestroyWindow(self.window)
+
     def ensureWH(self,w,h):
         w=int(w);h=int(h)
         

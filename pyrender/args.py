@@ -5,6 +5,8 @@ import os
 parser=argparse.ArgumentParser(prog="NeuralRendererPython")
 #Required arg
 parser.add_argument('--workspace',required=True,default="",help="Specifies the workspace's location. This is the only mandatory argument.")
+#i don't know where to put this
+parser.add_argument('--autosaves',required=True,default="600",help="Specifies what interval to autosave the nn in so that I stop losing time to shit crashing.")
 
 #initialization,; ignored if w/o --make_workspace
 parser.add_argument('--make_workspace',required=False,action="store_true",default=False,help="Specifies to create a workspace.")
@@ -33,6 +35,7 @@ parser.add_argument('-W','--width',default='',required=False,help="Specifies win
 parser.add_argument('-H','--height',default='',required=False,help="Specifies window height")
 parser.add_argument('--example_interval',default='-1',required=False,help="Specifies the interval to wait before showing a new example image. (default is 4.0 if training, 0.5 otherwise)")
 #samples
+parser.add_argument('--sample_prefix',default='',required=False,help="Specifies a string to put before file names.")
 parser.add_argument('--sample_folder',default='.vscode/',required=False,help="Specifies where to save samples")
 parser.add_argument('--samples_every',default='-1',required=False,help="Specifies the # of batches to save an image at. requires sample_folder")
 parser.add_argument('--full_samples_final',default=False,required=False,action="store_true",help="Specifies the # of batches to save an image at. requires sample_folder")
@@ -62,6 +65,7 @@ refine_points = not raw_args.no_point_refinement
 nn_refinement = not raw_args.no_nn_refinement
 camera_refinement = not raw_args.no_camera_refinement
 
+autosave_s=float(raw_args.autosaves)
 timeout=(float(raw_args.timeout)>0)
 timeout_s=float(raw_args.timeout)
 max_batches = float(raw_args.max_batches)
@@ -83,6 +87,7 @@ if(raw_args.use_gates!=""):
 sample_folder = raw_args.sample_folder
 samples_every = int(raw_args.samples_every)
 full_samples_final = bool(raw_args.full_samples_final)
+sample_prefix = raw_args.sample_prefix
 
 if("PYSDL2_DLL_PATH" not in os.environ):
     raise Exception("\"PYSDL2_DLL_PATH\" is unset, SDL2 will not work. Please set \"PYSDL2_DLL_PATH\" either as a global variable or set it for this script")
