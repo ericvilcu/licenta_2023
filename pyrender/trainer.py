@@ -398,6 +398,7 @@ class trainer_thread(Thread):
                 self.parent.report_losses={}
                 self.parent.report_batches=0
             if(e-last_save>args.autosave_s):
+                last_save=e
                 print("autosaving...")
                 self.parent.save()
             if(args.stagnation_batches!=-1):
