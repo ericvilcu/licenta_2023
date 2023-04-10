@@ -73,28 +73,130 @@ def error_test():
 error_test()
 
 
-
-
-class GateModule(torch.nn.Module):
+class GateConv(torch.nn.Module):
     #suggested to work well in a lot of point-based novel view synthesis papers.
     #as far as I know, it was first described in: https://arxiv.org/pdf/1806.03589.pdf
-    def __init__(self,in_channels,out_channels,kernel_size=(3,3),padding=1,single_gate=True,**kwargs):
+    def __init__(self,in_channels,out_channels,kernel_size=(3,3),padding=1,single_gate=True,main_norm=None,gate_norm=None,**kwargs):
         super().__init__()
+        self.norm_main=torch.nn.ELU() if main_norm==None else main_norm
+        self.norm_gate=torch.nn.Sigmoid() if gate_norm==None else gate_norm
         self.main=torch.nn.Conv2d(in_channels,out_channels,kernel_size=kernel_size,padding=padding,**kwargs)
-        #self.register_module("main",self.main)
         self.gate=torch.nn.Conv2d(in_channels,1 if single_gate else out_channels,kernel_size=kernel_size,padding=padding,**kwargs)
-        #self.register_module("gate",self.gate)
     def forward(self,tsr:torch.Tensor)->torch.Tensor:
-        return torch.nn.functional.elu(self.main(tsr))*torch.sigmoid(self.gate(tsr))
+        return self.norm_main(self.main(tsr))*self.norm_gate(self.gate(tsr))
 
+class GateModule(torch.nn.Module):
+    #gate module, as described in https://arxiv.org/pdf/2205.05509.pdf
+    def __init__(self,in_channels,out_channels=None,mid_channels=None,normalizer=None,kernel_size=(3,3),padding=1,**kwargs):
+        super().__init__()
+        if(out_channels==None):out_channels=in_channels
+        if(mid_channels==None):mid_channels=in_channels
+        self.normalizer=torch.nn.Identity() if normalizer==None else normalizer
+        self.gate1=GateConv(in_channels,mid_channels,kernel_size=kernel_size,padding=padding,**kwargs)
+        self.gate2=GateConv(mid_channels,mid_channels,kernel_size=(1,1),padding=0,**kwargs)
+        self.gate3=GateConv(in_channels+mid_channels,out_channels,kernel_size=(1,1),padding=0,main_norm=torch.nn.Identity(),**kwargs)
+        
+    def forward(self,tsr:torch.Tensor)->torch.Tensor:
+        return self.gate3(torch.cat([
+            self.normalizer(self.gate2(self.normalizer(self.gate1(tsr))))
+                                     ,tsr]))
 
-class MainModule(torch.nn.Module):
+# class SameScaleFusion(torch.nn.Module):
+#     def __init__(self,in_channels,out_channels=None,mid_channels=None,normalizer=None,padding=1,single_gate=True,**kwargs):
+#         super().__init__()
+#     def forward(self,*tensors):
+#         return sum(tensors)
+    
+# class MultiScaleFusion(torch.nn.Module):
+#     def __init__(self,inputs,scale):
+#         super().__init__()
+#     def forward(self,*tensors):
+#         return sum(tensors)
+
+#A heavily simplified nn as described in READ. (I didn't figure out same-scale/multi-scale fusion yet.) uses their gate modules.
+class MainModule_2(torch.nn.Module):
+    def __init__(self,layers=1,subplots=4,ndim=3,empty=False,**unused_args):
+        self.subplots=subplots
+        channels=ndim+1
+        super().__init__()
+        if(empty):return
+        padding=1
+        kern=1+2*padding
+        last_in=0
+        self.in_layers=[];self.out_layers=[]
+        for i in range(subplots):
+            l=[]
+            last_in+=channels
+            for j in range(layers):
+                mdl=GateConv(last_in,channels,kernel_size=(kern,kern),padding=padding)
+                l.append(mdl)
+            self.in_layers.append(torch.nn.ModuleList(l))
+            last_in=channels
+        last_in=0
+        self.in_layers=torch.nn.ModuleList(torch.nn.ModuleList(layer) for layer in self.in_layers)
+        for i in range(subplots):
+            l=[]
+            last_in+=channels+channels
+            for j in range(layers):
+                mdl=torch.nn.Sequential(
+                    GateModule(last_in,channels,mid_channels=channels,kernel_size=(kern,kern),padding=padding),
+                    GateConv(channels,channels,kernel_size=(kern,kern),padding=padding),
+                )
+                l.append(mdl)
+            self.out_layers.append(torch.nn.ModuleList(l))
+            last_in=channels
+        self.out_layers=torch.nn.ModuleList(torch.nn.ModuleList(layer) for layer in self.out_layers)
+        self.final=torch.nn.Conv2d(last_in,3,kernel_size=(1,1),padding=0)
+        #self.register_module("final", self.final)
+        self.downsampler=torch.nn.AvgPool2d((2,2),stride=2)
+            
+        
+    def forward(self,imgs:list[torch.Tensor]):
+        partials=[]
+        prev = torch.zeros([0])
+        for idx,layer in enumerate(self.in_layers):
+            #needs to be transposed so that the functions work properly, as channels are expected to be the first dimension after batch in pytorch.
+            img = imgs[idx].transpose(-3, -1).transpose(-2, -1)
+            if (prev.size(0) != 0):
+                img = torch.cat([img,prev], -3)
+            for conv in layer:
+                img = torch.nn.functional.elu(conv(img))
+            partials.append(img)
+            prev = self.downsampler(img)
+        prev = torch.zeros([0])
+        
+        for idx,layer in enumerate(self.out_layers):
+            img = partials.pop()
+            if (prev.size(0) != 0):
+                if (len(prev.size()) == 3):
+                    prev = torch.nn.functional.interpolate(torch.stack((prev,)),
+                        mode='bilinear',align_corners=True,
+                        size=[img.size(-2), img.size(-1) ])[0]
+                else:
+                    prev = torch.nn.functional.interpolate(prev,
+                        mode='bilinear',align_corners=True,
+                        size=[img.size(-2), img.size(-1) ])
+                img = torch.cat((img,prev), -3)
+            img = torch.cat([img,imgs[len(partials)].transpose(-3, -1).transpose(-2, -1)], -3)
+            for conv in layer:
+                img = conv(img)
+            prev = img
+
+        #print([*self.final.parameters()][0][0][0],[*self.final.parameters()][1])
+        prev = self.final(img)
+        #Now un-transpose it.
+        return prev.transpose(-2,-1).transpose(-3,-1)
+
+    def required_subplots(self):
+        return self.subplots
+
+class MainModule_1(torch.nn.Module):
     
     def __init__(self,subplots=4,ndim=3,layers=None,kern=3,use_gates=True,inter_ch=16,empty=False,**unused_args):
         super().__init__()
         if(empty):return
         if(kern%2!=1):
-            raise "kernel size must be odd for padding to be able to kee pit constant"
+            raise "kernel size must be odd for padding to be able to keep it constant"
         self.norm = torch.nn.ELU() if not use_gates else torch.nn.Identity()
         if layers==None: layers= 1 if use_gates else 2
         #self.register_module("norm", self.norm)
@@ -108,7 +210,7 @@ class MainModule(torch.nn.Module):
                 if(not use_gates):
                     mdl=torch.nn.Conv2d(last_in,inter_ch,kernel_size=(kern,kern),padding=padding)
                 else:
-                    mdl=     GateModule(last_in,inter_ch,kernel_size=(kern,kern),padding=padding)
+                    mdl=     GateConv(last_in,inter_ch,kernel_size=(kern,kern),padding=padding)
                 #self.register_module(f"in{i}_{j}",mdl)
                 l.append(mdl)
                 last_in=inter_ch
@@ -122,7 +224,7 @@ class MainModule(torch.nn.Module):
                 if(not use_gates):
                     mdl=torch.nn.Conv2d(last_in,inter_ch,kernel_size=(kern,kern),padding=padding)
                 else:
-                    mdl=     GateModule(last_in,inter_ch,kernel_size=(kern,kern),padding=padding)
+                    mdl=     GateConv(last_in,inter_ch,kernel_size=(kern,kern),padding=padding)
                 #self.register_module(f"out{i}_{j}",mdl)
                 l.append(mdl)
                 last_in=inter_ch
@@ -174,11 +276,16 @@ class MainModule(torch.nn.Module):
         return prev.transpose(-2,-1).transpose(-3,-1)
 
 
+def build_main_module(**options):
+    if(args.nn_type==1):
+        return MainModule_1(**options)
+    elif(args.nn_type==2):
+        return MainModule_2(**options)
 from torch.utils.data import DataLoader
 from camera_utils import best_split_camera,downsize_camera,pad_camera,unpad_tensor,put_back_together,tensor_subsection
 class trainer():
-    def __init__(self,data:dataSet.DataSet,nn:MainModule=None,optim:torch.optim.Adam=None,default_path=None,**options) -> None:
-        self.nn: MainModule = (MainModule(**options).cuda() if nn==None else nn.cuda()).requires_grad_(args.nn_refinement)
+    def __init__(self,data:dataSet.DataSet,nn=None,optim:torch.optim.Adam=None,default_path=None,**options) -> None:
+        self.nn = (build_main_module(**options).cuda() if nn==None else nn.cuda()).requires_grad_(args.nn_refinement)
         self.pad = int(options['start_padding']) if 'start_padding' in options else int(2**self.nn.required_subplots())
         self.default_path=default_path
         self.optim=used_optim([
@@ -220,7 +327,7 @@ class trainer():
     def load(path:str,args:dict):
         data_path=os.path.join(path,"data")
         data=dataSet.DataSet.load(data_path)
-        nn:MainModule=torch.load(os.path.join(path,"model"))
+        nn=torch.load(os.path.join(path,"model"))
         optim=used_optim([
             {'params':nn.parameters()},{'params':data.parameters(),'lr':LR_DS}
         ],lr=LR_NN)
@@ -269,7 +376,7 @@ class trainer():
 
     def size_safe_forward_nograd(self,cam_type:int,camera_data:list[float],scene:int):
         with torch.no_grad():
-            #todo? image split if necessary?
+            #TODO: image split if necessary
             lum=camera_data[4]
             subplots=self.draw_subplots(scene,cam_type,pad_camera(camera_data,self.pad),self.nn.required_subplots())
             img_float=unpad_tensor(self.forward(subplots),self.pad)
@@ -372,7 +479,7 @@ if(args.stagnation_batches!=-1):
         return stagnated
 import kernelItf
 class trainer_thread(Thread):
-    def __init__(self,parent,report_freq=10) -> None:
+    def __init__(self,parent,report_freq=120) -> None:
         super().__init__()
         self.should_stop_training=False
         self.report_freq=report_freq
@@ -398,8 +505,10 @@ class trainer_thread(Thread):
                 self.parent.report_losses={}
                 self.parent.report_batches=0
             if(e-last_save>args.autosave_s):
-                last_save=e
+                tmp=time()
                 print("autosaving...")
+                last_save=time()
+                print(f"autosaved ({last_save-tmp}s)")
                 self.parent.save()
             if(args.stagnation_batches!=-1):
                 append_loss_history(loss_this_batch)

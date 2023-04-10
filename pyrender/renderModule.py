@@ -1,3 +1,4 @@
+import args
 import torch
 import kernelItf as kern
 
@@ -10,6 +11,10 @@ class renderFunctionSingle(torch.autograd.Function):
         plot,weights = kern.plotSinglePointsToTensor(cam_type,camera,points,environment_type,environment)
         
         ctx.save_for_backward(weights,torch.tensor(cam_type),torch.tensor(camera) if type(camera)==list else camera,points,torch.tensor(environment_type),environment,plot)
+        if(args.inv_depth):
+            plot_inv=plot.clone()
+            plot_inv[:,:,-1]=1/plot_inv[:,:,-1]
+            return plot_inv
         return plot
     @staticmethod
     def backward(ctx,plot_grad):

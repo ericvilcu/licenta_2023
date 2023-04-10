@@ -112,7 +112,6 @@ def plotSinglePointsToTensor(cam_type:int,cam_data:(torch.Tensor or list[float])
     #TODO: remove some of the debug stuff.
     # global LAST_DBG
     # DBG_POSITIONS=torch.zeros((2*points.size(0),),dtype=torch.int32,device='cuda').contiguous()
-    #pydev_do_not_trace=False
     cam_type=int(cam_type)
     ndim=points.shape[-1]-3
     w,h=map(int,cam_data[2:4])

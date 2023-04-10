@@ -6,18 +6,20 @@ parser=argparse.ArgumentParser(prog="NeuralRendererPython")
 #Required arg
 parser.add_argument('--workspace',required=True,default="",help="Specifies the workspace's location. This is the only mandatory argument.")
 #i don't know where to put this
-parser.add_argument('--autosaves',required=True,default="600",help="Specifies what interval to autosave the nn in so that I stop losing time to shit crashing.")
+parser.add_argument('--autosaves',required=False,default="600",help="Specifies what interval to autosave the nn in so that I stop losing time to shit crashing.")
 
 #initialization,; ignored if w/o --make_workspace
 parser.add_argument('--make_workspace',required=False,action="store_true",default=False,help="Specifies to create a workspace.")
 parser.add_argument('-s','--scene',required=False, action='append', nargs=1,help="specifies a scene (ignored if without --make_workspace)")
 parser.add_argument('--padding',default='',required=False,help="Overrides default padding that is applied to not mess up edges (default is the dataset 2**subplots) (ignored if without --make_workspace)")
+parser.add_argument('--nn_type',default='1',required=False,help="Specifies what rendering network to use. see documentation (default=1)")
+#nn type==1
 parser.add_argument('--subplots',default='4',required=False,help="Overrides default number of subplots (default is 4) (ignored if without --make_workspace)")
 parser.add_argument('--use_gates',default='False',required=False,help="Specifies wether to use gates or not (ignored if without --make_workspace)")
 parser.add_argument('--extra_channels',default='0',required=False,help="Puts extra channels initially filled with gaussian noise onto points. (ignored if without --make_workspace)")
 parser.add_argument('--base_nn',default='',required=False,help="Where to load a pre-initialized nn from. (ignored if without --make_workspace, all other nn args may be ignored, amd --extra_channels should be specified to be this nn's value)")
 #parser.add_argument('--base_optim',default='',required=False,help="Where to load a pre-initialized optimizer from. (ignored if without --make_workspace, all other nn args may be ignored, amd --extra_channels should be specified to be this nn's value)")
-
+parser.add_argument('--inv_depth',default='0',required=False,help="Whether to use 1/depth or depth itself")
 
 #training
 parser.add_argument('--notrain',action='store_true',default=False,required=False,help="Specifies to not train the neural network")
@@ -48,8 +50,13 @@ parser.add_argument('--stagnation',required=False,default=('-1','-1'),nargs=2,he
 
 raw_args=parser.parse_args()
 
+nn_type=int(raw_args.nn_type)
+if(not nn_type in (1,2)):
+    raise Exception(f"nn_type not valid.({nn_type})")
+
 base_nn:str = raw_args.base_nn
 ndim=3+int(raw_args.extra_channels)
+inv_depth=raw_args.inv_depth
 scenes=[s[0] for s in raw_args.scene]
 width=raw_args.width
 height=raw_args.height
