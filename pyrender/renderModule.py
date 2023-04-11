@@ -3,6 +3,7 @@ import torch
 import kernelItf as kern
 from torch.autograd.function import once_differentiable
 
+#@once_differentiable
 class renderFunctionSingle(torch.autograd.Function):
     @staticmethod
     def forward(ctx,cam_type:int,camera,points:torch.Tensor,environment_type:int,environment:torch.Tensor):
@@ -17,7 +18,7 @@ class renderFunctionSingle(torch.autograd.Function):
             plot_inv[:,:,-1]=1/plot_inv[:,:,-1]
             return plot_inv
         return plot
-    @once_differentiable
+    
     @staticmethod
     def backward(ctx,plot_grad):
         weights,cam_type,camera,points,plot,environment_type,environment = ctx.saved_tensors

@@ -153,6 +153,7 @@ def plotSinglePointsToTensor(cam_type:int,cam_data:(torch.Tensor or list[float])
     #plot_background = get_kernel(module_name,"background")
     plot = torch.zeros([h,w,ndim+1],device='cuda').contiguous()
     weights = torch.zeros([h,w],device='cuda').contiguous()
+    torch.cuda.synchronize()#This way it is reported if the ones above are busted
     plot[::,::,-1]=1e9#initialize to far plane.
     
     determine_depth(
@@ -209,9 +210,10 @@ def plotSinglePointsBackwardsToTensor(weights:torch.Tensor,cam_type:int,cam_data
     assert(plot_grad.is_contiguous())
     module_name=f"plot CAM_TYPE={cam_type} NDIM={ndim} STRUCTURAL_REFINEMENT={int(args.STRUCTURAL_REFINEMENT)} ENVIRONMENT_TYPE={environment_type}"
     
-    cam_data_grad=torch.zeros_like(cam_data)
-    points_grad=torch.zeros_like(points)
-    environment_grad=torch.zeros_like(env)
+    cam_data_grad=torch.zeros_like(cam_data).contiguous()
+    points_grad=torch.zeros_like(points).contiguous()
+    environment_grad=torch.zeros_like(env).contiguous()
+    torch.cuda.synchronize()#This way it is reported if the ones above are busted
     
     #per-plotted point backward
     backward = get_kernel(module_name,"backward")

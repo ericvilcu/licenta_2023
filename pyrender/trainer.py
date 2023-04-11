@@ -361,9 +361,11 @@ class trainer():
             for cell in row:
                 camera=cell
                 plots=self.draw_subplots(scene_id,cam_type,pad_camera(camera,self.pad),subplots)
-            
+                #torch.cuda.synchronize()
                 rez=self.forward(plots)
+                #torch.cuda.synchronize()
                 rez=unpad_tensor(rez,self.pad)*camera[4]
+                #torch.cuda.synchronize()
                 
         
                 diff=self.train_diff(rez,tensor_subsection(target,camera),1/(len(cameras)*len(row)*self.batch_size))
