@@ -146,18 +146,35 @@ def patch_points(points_txt,custom_bin_path, extra_color_channels=0):
                 f.write(struct.pack("fff"+("f"*extra_color_channels), *map(lambda x:x/255,[R, G, B] +([0]*extra_color_channels))))
     return r/ncol,g/ncol,b/ncol
 
-def make_dummy_environment(custom_bin_path, extra_color_channels:int=0,resolution:int=512,clr=(0,0,0),depth:int=0,extra=None):
+def make_dummy_environment(custom_bin_path,type=1, extra_color_channels:int=0,resolution:int=512,clr=(0,0,0),depth:int=0,extra=None):
     #We may also want to make a dummy environment    
     clr = list(map(lambda x:clamp(x,0,1),clr))
     print("Color is:",clr)
     if(extra == None):extra = [0]*extra_color_channels
     with open(custom_bin_path,"wb") as f:
-        f.write(struct.pack("qqqqq",4,6,resolution,resolution,4+extra_color_channels))
-        for face in range(6):
-            for x in range(resolution):
-                for y in range(resolution):
-                    #clr = [face/6,x/resolution,y/resolution]
-                    f.write(struct.pack("fff"+("f"*extra_color_channels) + "f", *map(float,clr+([0]*extra_color_channels)+[depth])))
+        if(type==0):
+            f.write(struct.pack("q",1))
+            f.write(struct.pack("qqf",1,1,type))
+        elif(type==1):
+            f.write(struct.pack("q",2))
+            f.write(struct.pack("qqf",1,1,type))
+            
+            f.write(struct.pack("qq",1,4+extra_color_channels))
+            for i in range(3):
+                f.write(struct.pack("f",clr[i]))
+            for i in range(extra_color_channels):
+                f.write(struct.pack("f",0.))
+            f.write(struct.pack("f",1e6))
+        elif(type==3):
+            f.write(struct.pack("q",2))
+            f.write(struct.pack("qqf",1,1,type))
+            
+            f.write(struct.pack("qqqqq",4,6,resolution,resolution,4+extra_color_channels))
+            for face in range(6):
+                for x in range(resolution):
+                    for y in range(resolution):
+                        #clr = [face/6,x/resolution,y/resolution]
+                        f.write(struct.pack("fff"+("f"*extra_color_channels) + "f", *map(float,clr+([0]*extra_color_channels)+[depth])))
 """
 Not sure if this is worth automating, I may want to configure some things manually for best speed/results
 """

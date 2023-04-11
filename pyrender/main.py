@@ -10,7 +10,6 @@ import trainer
 
 from GLRenderer import Renderer
 from time import time,sleep
-from renderModule import renderModule
 from dataSet import DataSet
 import kernelItf
 import cameraController
@@ -47,8 +46,6 @@ if(args.live_render):
 #ds = DataSet(scenes=args.scenes)
 s=e=time()
 
-pm=renderModule()
-pm.to('cuda')
 last_test_result=time()-args.example_interval
 controller=cameraController.CameraController()
 ev=[]
@@ -98,7 +95,7 @@ try:
                 if(controller.use_neural):
                     view = t.size_safe_forward_nograd(controller.camera_type(),cam,0)
                 else:
-                    view = controller.only_shown_dimensions(pm.forward(controller.camera_type(),cam,ds.scenes[0].data.points,ds.scenes[0].data.environment))
+                    view = controller.only_shown_dimensions(*t.draw_subplots(0,controller.camera_type(),cam,1))
                 r.upload_tensor('interactive',view)
                 ev=r.update()
                 #TODO:autosave-check

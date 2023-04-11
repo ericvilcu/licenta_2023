@@ -7,18 +7,20 @@ class learnableData(torch.nn.Module):
     def __init__(self,fn:str=None,points:torch.Tensor=None,env:torch.Tensor=None,force_ndim=None) -> None:
         super().__init__()
         if(fn!=None):
-            self.environment_type=-1#TODO: some way to get environment type
+            self.environment_type=-1
             if(os.path.exists(fn+"/points.txt")):
                 points = customSer.from_text(fn+"/points.txt")
-                environment = customSer.from_text(fn+"/environment.txt")
+                environment = customSer.from_text_list(fn+"/environment.txt")
             elif(os.path.exists(fn+"/points.bin")):
                 points = customSer.from_bin(fn+"/points.bin")
-                environment = customSer.from_bin(fn+"/environment.bin")
+                environment = customSer.from_bin_list(fn+"/environment.bin")
             elif(os.path.exists(fn+"/points")):
                 points = torch.load(fn+"/points")
                 environment = torch.load(fn+"/environment")
             else: raise Exception("dataset location was invalid")
             #points[::,3:]+=torch.rand_like(points[::,3:])*1e-3
+            self.environment_type=int(environment[0]-1)
+            environment=environment[1:]
         else:
             points = points
             environment = env
@@ -27,8 +29,14 @@ class learnableData(torch.nn.Module):
             if(ndim>force_ndim):
                 #trunc
                 trunc=ndim-force_ndim
-                points=points[::,:-trunc:]
-                environment=points[::,::,::,:-trunc:]
+                points=points[::,:-trunc:].contiguous()
+                if(self.environment_type==0):
+                    environment=points[::,::,::,:-trunc:].contiguous()
+                elif(self.environment_type==1):
+                    #TODO
+                    environment=points[::,::,::,:-trunc:].contiguous()
+                elif(self.environment_type==2):
+                    environment=points[::,::,::,:-trunc:].contiguous()
             elif(force_ndim>ndim):
                 extra=force_ndim-ndim
                 ps=list(points.shape)
@@ -38,25 +46,37 @@ class learnableData(torch.nn.Module):
                 append_points=None
                 points=points.contiguous()
                 
-                es=list(environment.shape)
-                es[-1]=extra
-                append_environment=torch.randn(*es,device='cuda')
-                environment: torch.Tensor=torch.cat((environment,append_environment),-1)
-                append_environment=None
-                environment=environment.contiguous()
-        self.register_parameter("environment",param=torch.nn.Parameter(environment))
-        self.environment:torch.Tensor=self.environment
-        self.register_parameter("points",param=torch.nn.Parameter(points))
-        self.points:torch.Tensor=self.points
+                #TODO: expand environment
+                if(self.environment_type==0):
+                    append_environment=torch.randn((extra,),device='cuda')
+                    environment[0]=torch.cat([environment[0][:-1],append_environment,environment[0][-1:]])
+                elif(self.environment_type==1):
+                    ...#TODO
+                elif(self.environment_type==2):
+                    environment=environment[0]
+                    es=list(environment.shape)
+                    es[-1]=extra
+                    append_environment=torch.randn(*es,device='cuda')
+                    environment: torch.Tensor=torch.cat((environment,append_environment),-1)
+                    append_environment=None
+                    environment=[environment.contiguous()]
+        self.environment:list[torch.Tensor]=torch.nn.ParameterList(environment)
+        self.points:torch.Tensor=torch.nn.Parameter(points)
         
         self.points.requires_grad = args.refine_points
         self.environment.requires_grad = args.refine_points
+    
+    def get_environment(self):
+        if(self.environment_type in (0,2)):
+            return self.environment[0]
+        else:
+            return torch.cat([param.reshape(param.numel()).cuda() for param in self.environment])
         
     def save(self,path):
         points_path=os.path.join(path,"points.bin")
         environment_path=os.path.join(path,"environment.bin")
         customSer.to_bin(self.points,points_path)
-        customSer.to_bin(self.environment,environment_path)
+        customSer.to_bin_list([torch.tensor([self.environment_type+1]),*self.environment],environment_path)
 
 
 class Scene(torch.nn.Module):
@@ -79,6 +99,8 @@ class Scene(torch.nn.Module):
             old_images_dir=os.path.join(self.path,"train_images")
             for i in os.listdir(old_images_dir):
                 shutil.copy(os.path.join(old_images_dir,i),images_path)
+    def get_environment(self):
+        return self.data.get_environment()
 
 
 

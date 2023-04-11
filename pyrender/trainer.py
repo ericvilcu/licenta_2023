@@ -345,7 +345,7 @@ class trainer():
         points,environment,environment_type=d.points,d.environment,d.environment_type
         plots:list[torch.Tensor]=[]
         for _unused in range(num):
-            plots.append(renderFunctionSingle.apply(cam_type,cam_data,points,environment_type,environment))
+            plots.append(renderFunctionSingle.apply(cam_type,cam_data,points,environment_type,d.get_environment()))
             cam_data=downsize_camera(cam_type,cam_data)
         return plots
     def train_diff(self,rez:torch.Tensor,target:torch.Tensor,mul:float):

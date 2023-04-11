@@ -1,3 +1,5 @@
+#include "cameras.cuh"
+#include "environments.cuh"
 #ifndef STRUCTURAL_REFINEMENT
 #define STRUCTURAL_REFINEMENT 0
 #endif

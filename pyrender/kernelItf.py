@@ -1,5 +1,6 @@
 from cuda import nvrtc
 import cuda
+import os
 import cuda_kernels
 import torch
 import pycuda.driver as drv
@@ -41,6 +42,23 @@ def ASSERT_DRV(err):
         raise RuntimeError("Unknown error type: {}".format(err))
 
 constructed_modules={}
+def prepend_includes(txt:str,loaded:set=None):
+    if(loaded==None):
+        loaded=set()
+    prep=""
+    while(txt.startswith("#include \"")):
+        idx=txt.find('\n')
+        inc=txt[:idx]
+        v=inc.split('"')[1]
+        if(os.path.exists(f"cuda_kernels/{v}")):
+            if(not v in loaded):
+                loaded.add(v)
+                prep=prep+prepend_includes(open(f"cuda_kernels/{v}").read(),loaded)
+            txt=txt[idx+1:]
+        else:
+            break
+    return prep+txt
+
 def assemble_source(m:str):
     d=m.split(' ')
     src = open(f"cuda_kernels/{d[0]}.cu").read()
@@ -48,8 +66,11 @@ def assemble_source(m:str):
     macros="".join(
         ["#define "+i.replace('=',' ')+'\n' for i in MACROS]
     )
-    #Here we would put headers if we had any important ones    
-    src = macros+open(f"cuda_kernels/cameras.cuh").read()+'\n'+open(f"cuda_kernels/environments.cuh").read()+'\n'+open(f"cuda_kernels/{d[0]}.cu").read()
+    #Here we would put headers if we had any important ones
+    #if(d[0]=='plot'):
+        #src = macros+open(f"cuda_kernels/cameras.cuh").read()+'\n'+open(f"cuda_kernels/environments.cuh").read()+'\n'+open(f"cuda_kernels/{d[0]}.cu").read()
+    #else:
+    src = macros+prepend_includes(open(f"cuda_kernels/{d[0]}.cu").read())
     return src
 from pycuda._driver import Function as pyf
 import threading
@@ -108,7 +129,7 @@ def gpu_array(tensor):
 
 LAST_DBG=0
 
-def plotSinglePointsToTensor(cam_type:int,cam_data:(torch.Tensor or list[float]), points:torch.Tensor, environment_type:int, env:torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+def plotSinglePointsToTensor(cam_type:int,cam_data:(torch.Tensor or list[float]), points:torch.Tensor, environment_type:int, environment:torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
     #TODO: remove some of the debug stuff.
     # global LAST_DBG
     # DBG_POSITIONS=torch.zeros((2*points.size(0),),dtype=torch.int32,device='cuda').contiguous()
@@ -122,8 +143,9 @@ def plotSinglePointsToTensor(cam_type:int,cam_data:(torch.Tensor or list[float])
     num_points = points.shape[0]
     
     assert(points.is_contiguous())
-    assert(env.is_contiguous())
-    
+    env=environment.cuda().contiguous()
+
+
     module_name=f"plot CAM_TYPE={cam_type} NDIM={ndim} STRUCTURAL_REFINEMENT={int(args.STRUCTURAL_REFINEMENT)} ENVIRONMENT_TYPE={environment_type}"
     plot_points = get_kernel(module_name,"plot")
     determine_depth = get_kernel(module_name,"determine_depth")
@@ -183,13 +205,13 @@ def plotSinglePointsBackwardsToTensor(weights:torch.Tensor,cam_type:int,cam_data
         gpu_cam_data=cam_data.clone().detach().to(torch.float32).cuda().contiguous()
     num_points = points.shape[0]
     assert(points.is_contiguous())
-    assert(environment.is_contiguous())
+    env=environment.cuda().contiguous()
     assert(plot_grad.is_contiguous())
     module_name=f"plot CAM_TYPE={cam_type} NDIM={ndim} STRUCTURAL_REFINEMENT={int(args.STRUCTURAL_REFINEMENT)} ENVIRONMENT_TYPE={environment_type}"
     
     cam_data_grad=torch.zeros_like(cam_data)
     points_grad=torch.zeros_like(points)
-    environment_grad=torch.zeros_like(environment)
+    environment_grad=torch.zeros_like(env)
     
     #per-plotted point backward
     backward = get_kernel(module_name,"backward")
@@ -217,7 +239,7 @@ def plotSinglePointsBackwardsToTensor(weights:torch.Tensor,cam_type:int,cam_data
         gpu_array(gpu_cam_data),
         gpu_array(plot), gpu_array (plot_grad), gpu_array(weights),
         np.int32(h),np.int32(w),
-        gpu_array(environment_grad),gpu_array(environment),
+        gpu_array(environment_grad),gpu_array(env),
         grid=(1+((num_points-1)//max_threads),1,1),
         block=line_max_threads
     )

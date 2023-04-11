@@ -34,7 +34,7 @@ __hdfi__ void sample_environment(float* out,const float* environment_data,float3
 
 __hdfi__ void backward_environment(const float* pixel_grad, const float* environment_data, float* environment_grad,float3 direction){
     for (int i = 0; i <= NDIM; ++i)
-        environment_grad[i] = pixel_grad[i];
+        atomicAdd(&environment_grad[i], pixel_grad[i]);
 }
 #endif
 
