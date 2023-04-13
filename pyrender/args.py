@@ -1,7 +1,7 @@
 import argparse
 import os
 #TODO: organize arguments so finding/modifying them is easier
-
+os.environ["CUDA_LAUNCH_BLOCKING"]='1'
 parser=argparse.ArgumentParser(prog="NeuralRendererPython")
 #Required arg
 parser.add_argument('--workspace',required=True,default="",help="Specifies the workspace's location. This is the only mandatory argument.")
@@ -51,8 +51,6 @@ parser.add_argument('--stagnation',required=False,default=('-1','-1'),nargs=2,he
 raw_args=parser.parse_args()
 
 nn_type=int(raw_args.nn_type)
-if(not nn_type in (1,2)):
-    raise Exception(f"nn_type not valid.({nn_type})")
 
 base_nn:str = raw_args.base_nn
 ndim=3+int(raw_args.extra_channels)

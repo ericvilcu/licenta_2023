@@ -73,6 +73,21 @@ def error_test():
 error_test()
 
 
+class trainMetadata():
+    def __init__(self,path:str=None,hist:list=None,batches:int=None):
+        self.hist=[]
+        self.batches=0
+        if(path!=None):
+            if(os.path.exists(path)):
+                fo=torch.load(path)
+                self.hist=fo.hist
+                self.batches=fo.batches
+            
+        elif(hist!=None and batches!=None):
+            self.hist=hist
+            self.batches=batches
+
+metaData=trainMetadata()
 class GateConv(torch.nn.Module):
     #suggested to work well in a lot of point-based novel view synthesis papers.
     #as far as I know, it was first described in: https://arxiv.org/pdf/1806.03589.pdf
@@ -190,6 +205,101 @@ class MainModule_2(torch.nn.Module):
     def required_subplots(self):
         return self.subplots
 
+class MainModule_3(torch.nn.Module):
+    #NOTE: implementation is lazy
+    def __init__(self, layers=4, ndim=5, empty=False, **unused_args) -> None:
+        self.layers=layers
+        super().__init__()
+        if(ndim!=7):
+            raise Exception("ndim must be equal to 7 (4 extra channels) (rgb, x+/x-/y+/y-, depth/weight)")
+        self.kp=torch.nn.Parameter(torch.tensor(1.).cuda())
+        self.pp=torch.nn.Parameter(torch.tensor(1./12.).cuda())
+    
+    def colors(self,tsr):
+        return tsr[:,:,:-1]
+    def weight(self,tsr):
+        return tsr[:,:,-1:]
+    
+    def weighted_sum(self,*plots:torch.Tensor):
+        plots=list(plots)
+        for i in range(len(plots)-1):
+            if(plots[i].size()!=plots[-1].size()):
+                plots[i]=torch.nn.functional.interpolate(torch.stack((torch.stack((plots[i],)),)),#welcome to stupid.
+                            mode='nearest',
+                            size=[plots[-1].size(-3), plots[-1].size(-2), plots[-1].size(-1) ])[0][0]
+        plots_w=[self.weight(plot) for plot in plots]
+        plots_c=[self.colors(plot) for plot in plots]
+        weight_sum=sum(plots_w)
+        clr=sum([w*c for w,c in zip(plots_w,plots_c)])/weight_sum
+        assert((weight_sum==0).any()==False)
+        return torch.cat((clr,torch.log(1+weight_sum)),-1)
+    
+    def apply_connectivity(self,plot):
+        #return plot
+        #xn_yn=plot
+        xny0=torch.cat([plot[:,-1:],plot[:,:-1]],1)
+        xny1=torch.cat([plot[:,1:] ,plot[:,:1] ],1)
+        x0yn=torch.cat([plot[-1:]  ,plot[:-1]  ],0)
+        x1yn=torch.cat([plot[1:]   ,plot[:1]   ],0)
+        x0y0=torch.cat([xny0[-1:]  ,xny0[:-1]  ],0)
+        x1y0=torch.cat([xny0[1:]   ,xny0[:1]   ],0)
+        x0y1=torch.cat([x0yn[:,-1:],x0yn[:,:-1]],1)
+        x1y1=torch.cat([x1yn[:,1:] ,x1yn[:,:1] ],1)
+        xy_mat=[[x0y0,xny0,x1y0],
+                      [x0yn,plot,x1yn],
+                      [x0y1,xny1,x1y1],]
+        results=[plot]
+        
+        I1,J1=0,0
+        I2,J2=1,1
+        R1=((4,1),)
+        R2=((5,1),)
+        s2=1/2#math.sqrt(2)
+        d1=(           1/2)/(math.sqrt(3)/2 + 1/2) * self.kp
+        d2=(math.sqrt(3)/2)/(math.sqrt(3)/2 + 1/2) * self.kp
+        for (I1,J1,R1),(I2,J2,R2) in [
+            # 2 main crosses. X and +
+            ((0,0,((4,s2),(6,s2))),(2,2,((5,s2),(7,s2)))),#\
+            ((0,2,((4,s2),(7,s2))),(2,0,((5,s2),(6,s2)))),#/
+            ((1,0,((4, 1),      )),(1,2,((5, 1),      ))),#|
+            ((0,1,((6, 1),      )),(2,1,((7, 1),      ))),#-
+            #Then theres also 8 knight moves. I'll do them later.
+            #((1,0,((5,d2),(6,d2))),(0,2,((4,d2),(7,d2)))),#A 1 /
+            #((1,0,((5,d2),(7,d2))),(2,2,((4,d2),(6,d2)))),#A 2 \
+        ]:
+            w1=self.weight(xy_mat[I1-1][J1-1])#counted from 1 on accident. I blame octave.
+            w2=self.weight(xy_mat[I2-1][J2-1])
+            c1=self.colors(xy_mat[I1-1][J1-1])
+            c2=self.colors(xy_mat[I2-1][J2-1])
+            factor=torch.exp(sum([c1[:,:,R-1:R]*w for R,w in R1])*sum([c2[:,:,R-1:R]*w for R,w in R2]))
+            if (((w1+w2)*factor)==torch.inf).any():
+                raise Exception("OH NO")
+            results.append(
+                torch.cat([(c1*w1+c2*w2)/(w1+w2),(w1+w2)*factor],-1)
+            )
+        ret=self.weighted_sum(*results)
+        #print(*[list(map(float,(r[:,:,:3].max(),r[:,:,:3].min(),r[:,:,-1].max(),r[:,:,-1].min()))) for r in [plot,ret]])
+        return ret
+    
+    def forward(self,plots:list[torch.Tensor]):
+        part_rez=None
+        #start from the lowest rez.
+        for plot in plots[::-1]:
+            #plot=self.apply_connectivity(plot)
+            #plot[:,:,-1]=(2*torch.ones_like(plot[:,:,-1])).pow(6*plot[:,:,-1])
+            plot=torch.cat([plot[:,:,:-1],plot[:,:,-1:]],-1)
+            if(part_rez!=None):
+                part_rez=torch.cat([part_rez[:,:,:-1],part_rez[:,:,-1:]*self.pp],-1)
+                part_rez=self.weighted_sum(part_rez,plot)
+            else:
+                part_rez=plot
+            part_rez=self.apply_connectivity(part_rez)
+        return part_rez[:,:,:3]
+    
+    def required_subplots(self):
+        return self.layers
+    
+    
 class MainModule_1(torch.nn.Module):
     
     def __init__(self,subplots=4,ndim=3,layers=None,kern=3,use_gates=True,inter_ch=16,empty=False,**unused_args):
@@ -281,6 +391,11 @@ def build_main_module(**options):
         return MainModule_1(**options)
     elif(args.nn_type==2):
         return MainModule_2(**options)
+    elif(args.nn_type==3):
+        return MainModule_3(**options)
+    else:
+        raise Exception("Invalid module type index")
+
 from torch.utils.data import DataLoader
 from camera_utils import best_split_camera,downsize_camera,pad_camera,unpad_tensor,put_back_together,tensor_subsection
 class trainer():
@@ -319,14 +434,18 @@ class trainer():
             os.mkdir(data_path)
         torch.save(self.nn,os.path.join(path,"model"))
         torch.save({"optim":self.optim.state_dict()},os.path.join(path,"optim"))
+        global metaData
+        torch.save(metaData,os.path.join(path,"meta"))
         
         self.data.save_to(data_path)
         
 
     @staticmethod
     def load(path:str,args:dict):
+        global metaData
         data_path=os.path.join(path,"data")
         data=dataSet.DataSet.load(data_path)
+        metaData=trainMetadata(path=os.path.join(path,"meta"))
         nn=torch.load(os.path.join(path,"model"))
         optim=used_optim([
             {'params':nn.parameters()},{'params':data.parameters(),'lr':LR_DS}
@@ -410,6 +529,8 @@ class trainer():
                         #TODO: get rid of magic number, somehow.
                         dataSet.camera_updater(**updater)(camera+camera.grad*LR_CAM)
                 local_diff={}
+            metaData.batches+=1
+            metaData.hist.append(diff)
             self.optim.step()
         except Exception as e:
             if(type(e)==torch.cuda.OutOfMemoryError):
@@ -460,7 +581,7 @@ class trainer():
         scene_id,cam_type,camera,*unused=self.data.trainImages.__getitem__(id)
         c=self.size_safe_forward_nograd(cam_type,camera,scene_id)
         if(title==None):
-            title=f"i{id}_b{TOTAL_BATCHES_THIS_RUN}"
+            title=f"i{id}_b{metaData.batches}"
         save_image(c.transpose(-3,-1).transpose(-2,-1),os.path.join(args.sample_folder,args.sample_prefix+title+".png"))
     def save_all_samples(self):
         for i in range(len(self.data.trainImages)):
@@ -501,7 +622,7 @@ class trainer_thread(Thread):
                 l={loss:float(self.parent.report_losses[loss]/self.parent.report_batches) for loss in self.parent.report_losses}
                 print(f"Report: average loss is {l} in {self.parent.report_batches} batches")
                 dt=e-s
-                print(f"Total batches:{TOTAL_BATCHES_THIS_RUN};Runtime={int(dt)//3600:02d}:{(int(dt)//60)%60:02d}:{int(dt)%60:02d}.{str(math.fmod(dt,1))[2:]}")
+                print(f"Total batches:{metaData.batches}(this run {TOTAL_BATCHES_THIS_RUN});Runtime={int(dt)//3600:02d}:{(int(dt)//60)%60:02d}:{int(dt)%60:02d}.{str(math.fmod(dt,1))[2:]}")
                 l={}
                 last_report=e
                 self.parent.report_losses={}
