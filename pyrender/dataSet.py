@@ -3,6 +3,14 @@ import os
 import customSer
 import shutil
 import args
+def get_expansion_func(type:str):
+    if(type=="norm"):
+        return torch.randn
+    if(type=="zero" or type=="zeros"):
+        return torch.zeros
+    if(type=="one" or type=="ones"):
+        return lambda *dims,**kw:torch.ones(*dims,**kw)*20
+    raise Exception(f"Unknown expansion func {type}")
 class learnableData(torch.nn.Module):
     def __init__(self,fn:str=None,points:torch.Tensor=None,env:torch.Tensor=None,force_ndim=None) -> None:
         super().__init__()
@@ -38,17 +46,19 @@ class learnableData(torch.nn.Module):
                 elif(self.environment_type==2):
                     environment=points[::,::,::,:-trunc:].contiguous()
             elif(force_ndim>ndim):
+                ee=get_expansion_func(args.expand_environment)
+                ep=get_expansion_func(args.expand_points)
                 extra=force_ndim-ndim
                 ps=list(points.shape)
                 ps[-1]=extra
-                append_points=torch.randn(*ps,device='cuda')
+                append_points=ep(*ps,device='cuda')
                 points: torch.Tensor=torch.cat((points,append_points),-1)
                 append_points=None
                 points=points.contiguous()
                 
                 #TODO: expand environment
                 if(self.environment_type==0):
-                    append_environment=torch.randn((extra,),device='cuda')
+                    append_environment=ee((extra,),device='cuda')
                     environment[0]=torch.cat([environment[0][:-1],append_environment,environment[0][-1:]])
                 elif(self.environment_type==1):
                     ...#TODO

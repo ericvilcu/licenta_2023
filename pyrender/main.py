@@ -39,9 +39,9 @@ if(args.live_render):
     r = Renderer(**{'w':int(args.width),'h':int(args.height)})
     r.removeView('main')
     r.createView('interactive',0.,0.,.5,.5,0,True)
-    r.createView('target'     ,.5,0.,1.,.5,0,True)
+    r.createView('render'     ,.5,0.,1.,.5,0,True)
     r.createView('points'     ,0.,.5,.5,1.,0,True)
-    r.createView('render'     ,.5,.5,1.,1.,0,True)
+    r.createView('target'     ,.5,.5,1.,1.,0,True)
 
 #ds = DataSet(scenes=args.scenes)
 s=e=time()
@@ -86,6 +86,11 @@ try:
                 
                 controller.process_sdl_events(ev,delta)
                 
+                if(controller.take_screencap):
+                    r.screencapViews(args.screencap_folder)
+                    controller.take_screencap=False
+                    
+                
                 if(e-last_test_result>args.example_interval):
                     last_test_result=e
                     t.display_results_to_renderer(r,'points','render','target')
@@ -98,7 +103,6 @@ try:
                     view = controller.only_shown_dimensions(*t.draw_subplots(0,controller.camera_type(),cam,1))
                 r.upload_tensor('interactive',view)
                 ev=r.update()
-                #TODO:autosave-check
                 
                 if(len([e1 for e1 in ev if(e1.type == sdl2.events.SDL_QUIT)])>0):
                     print("Quitting manually...")

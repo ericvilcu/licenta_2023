@@ -207,8 +207,10 @@ class MainModule_2(torch.nn.Module):
 
 class MainModule_3(torch.nn.Module):
     #NOTE: implementation is lazy
-    def __init__(self, layers=4, ndim=5, empty=False, **unused_args) -> None:
-        self.layers=layers
+    def __init__(self, subplots=4, ndim=5, empty=False, **unused_args) -> None:
+        if(args.inv_depth!='1'):
+            print("WARN: this type of nn works poorly without \"--inv_depth 1\"  as arguments.")
+        self.layers=subplots
         super().__init__()
         if(ndim!=7):
             raise Exception("ndim must be equal to 7 (4 extra channels) (rgb, x+/x-/y+/y-, depth/weight)")
@@ -229,31 +231,28 @@ class MainModule_3(torch.nn.Module):
                             size=[plots[-1].size(-3), plots[-1].size(-2), plots[-1].size(-1) ])[0][0]
         plots_w=[self.weight(plot) for plot in plots]
         plots_c=[self.colors(plot) for plot in plots]
-        weight_sum=sum(plots_w)
+        weight_sum: torch.Tensor=sum(plots_w)
         clr=sum([w*c for w,c in zip(plots_w,plots_c)])/weight_sum
-        assert((weight_sum==0).any()==False)
-        return torch.cat((clr,torch.log(1+weight_sum)),-1)
+        assert((weight_sum<=0).any()==False)
+        return torch.cat([clr,torch.log(1+weight_sum)],-1)#todo: replace log? it is a little out of place.
     
     def apply_connectivity(self,plot):
         #return plot
         #xn_yn=plot
-        xny0=torch.cat([plot[:,-1:],plot[:,:-1]],1)
-        xny1=torch.cat([plot[:,1:] ,plot[:,:1] ],1)
-        x0yn=torch.cat([plot[-1:]  ,plot[:-1]  ],0)
-        x1yn=torch.cat([plot[1:]   ,plot[:1]   ],0)
-        x0y0=torch.cat([xny0[-1:]  ,xny0[:-1]  ],0)
-        x1y0=torch.cat([xny0[1:]   ,xny0[:1]   ],0)
-        x0y1=torch.cat([x0yn[:,-1:],x0yn[:,:-1]],1)
-        x1y1=torch.cat([x1yn[:,1:] ,x1yn[:,:1] ],1)
+        z=torch.zeros_like if not True else lambda x:x
+        xny0=torch.cat([z(plot[:,-1:]),  plot[:,:-1] ],1)
+        xny1=torch.cat([  plot[:,1:]  ,z(plot[:,:1] )],1)
+        x0yn=torch.cat([z(plot[-1:]  ),  plot[:-1]   ],0)
+        x1yn=torch.cat([  plot[1:]    ,z(plot[:1]   )],0)
+        x0y0=torch.cat([z(xny0[-1:]  ),  xny0[:-1]   ],0)
+        x1y0=torch.cat([  xny0[1:]    ,z(xny0[:1]   )],0)
+        x0y1=torch.cat([  x0yn[:,1:]  ,z(x0yn[:,:1] )],1)
+        x1y1=torch.cat([  x1yn[:,1:]  ,z(x1yn[:,:1] )],1)
         xy_mat=[[x0y0,xny0,x1y0],
                       [x0yn,plot,x1yn],
                       [x0y1,xny1,x1y1],]
-        results=[plot]
+        results=[torch.cat([plot,torch.ones_like(plot[:,:,-1:])],-1)]
         
-        I1,J1=0,0
-        I2,J2=1,1
-        R1=((4,1),)
-        R2=((5,1),)
         s2=1/2#math.sqrt(2)
         d1=(           1/2)/(math.sqrt(3)/2 + 1/2) * self.kp
         d2=(math.sqrt(3)/2)/(math.sqrt(3)/2 + 1/2) * self.kp
@@ -263,21 +262,40 @@ class MainModule_3(torch.nn.Module):
             ((0,2,((4,s2),(7,s2))),(2,0,((5,s2),(6,s2)))),#/
             ((1,0,((4, 1),      )),(1,2,((5, 1),      ))),#|
             ((0,1,((6, 1),      )),(2,1,((7, 1),      ))),#-
-            #Then theres also 8 knight moves. I'll do them later.
-            #((1,0,((5,d2),(6,d2))),(0,2,((4,d2),(7,d2)))),#A 1 /
-            #((1,0,((5,d2),(7,d2))),(2,2,((4,d2),(6,d2)))),#A 2 \
+            #Then theres also 8 knight moves. The way they're written is a bit of a mess...
+            ((1,0,((5,d2),(6,d1))),(0,2,((4,d1),(7,d1)))),#A 1 /
+            ((1,0,((5,d2),(7,d1))),(2,2,((4,d1),(6,d1)))),#A 2 \
+                
+            ((0,0,((5,d2),(7,d1))),(1,2,((4,d2),(6,d1)))),#V 1 \
+            ((2,0,((5,d2),(6,d1))),(1,2,((4,d2),(7,d1)))),#V 2 /
+                
+            ((2,0,((5,d1),(6,d2))),(0,1,((4,d1),(7,d2)))),#< 1 /
+            ((0,1,((5,d1),(7,d2))),(2,2,((4,d1),(6,d2)))),#< 2 \
+                
+            ((0,0,((5,d1),(7,d2))),(2,1,((4,d1),(6,d2)))),#> 1 \
+            ((2,1,((5,d1),(6,d2))),(0,2,((4,d1),(7,d2)))),#> 2 /
         ]:
-            w1=self.weight(xy_mat[I1-1][J1-1])#counted from 1 on accident. I blame octave.
-            w2=self.weight(xy_mat[I2-1][J2-1])
-            c1=self.colors(xy_mat[I1-1][J1-1])
-            c2=self.colors(xy_mat[I2-1][J2-1])
-            factor=torch.exp(sum([c1[:,:,R-1:R]*w for R,w in R1])*sum([c2[:,:,R-1:R]*w for R,w in R2]))
-            if (((w1+w2)*factor)==torch.inf).any():
+            
+            # w1=self.weight(x0y0)#xy_mat[I1-1][J1-1])#counted from 1 on accident. I blame octave.
+            # w2=self.weight(x1y1)#xy_mat[I2-1][J2-1])
+            # c1=self.colors(x0y0)#xy_mat[I1-1][J1-1])
+            # c2=self.colors(x1y1)#xy_mat[I2-1][J2-1])
+            w1=self.weight(xy_mat[I1][J1])
+            w2=self.weight(xy_mat[I2][J2])
+            c1=self.colors(xy_mat[I1][J1])
+            c2=self.colors(xy_mat[I2][J2])
+            #The -1 is b/c I counted from 1 on accident. I blame octave.
+            relu2 = lambda x:1+torch.nn.functional.elu(x)
+            factor=relu2(sum([c1[:,:,R-1:R]*w for R,w in R1]))*relu2(sum([c2[:,:,R-1:R]*w for R,w in R2]))
+            factor2=((w1+w2)*factor)
+            if (factor2==-torch.inf).any() or (factor2==torch.inf).any() or (factor2.isnan()).any():
+                raise Exception("OH NO")
+            if (w1+w2<=0).any():
                 raise Exception("OH NO")
             results.append(
-                torch.cat([(c1*w1+c2*w2)/(w1+w2),(w1+w2)*factor],-1)
+                torch.cat([(c1*w1+c2*w2)/(w1+w2),(w1+w2),(w1+w2)*factor],-1)
             )
-        ret=self.weighted_sum(*results)
+        ret=self.weighted_sum(*results)[::,::,:-1]
         #print(*[list(map(float,(r[:,:,:3].max(),r[:,:,:3].min(),r[:,:,-1].max(),r[:,:,-1].min()))) for r in [plot,ret]])
         return ret
     
@@ -287,7 +305,7 @@ class MainModule_3(torch.nn.Module):
         for plot in plots[::-1]:
             #plot=self.apply_connectivity(plot)
             #plot[:,:,-1]=(2*torch.ones_like(plot[:,:,-1])).pow(6*plot[:,:,-1])
-            plot=torch.cat([plot[:,:,:-1],plot[:,:,-1:]],-1)
+            plot=torch.cat([plot[:,:,:-1],torch.sqrt(plot[:,:,-1:])],-1)
             if(part_rez!=None):
                 part_rez=torch.cat([part_rez[:,:,:-1],part_rez[:,:,-1:]*self.pp],-1)
                 part_rez=self.weighted_sum(part_rez,plot)
@@ -552,7 +570,7 @@ class trainer():
         TOTAL_BATCHES_THIS_RUN+=1
         return get_loss(diff)
         
-    def display_results_to_renderer(self,r:GLRenderer.Renderer,points_view,target_view,result_view):
+    def display_results_to_renderer(self,r:GLRenderer.Renderer,points_view,result_view,target_view):
         scene_id,cam_type,camera,target,*unused=self.test_dataloader_iter.next()
         target=torch.squeeze(target,0)
         cam_type=int(cam_type)

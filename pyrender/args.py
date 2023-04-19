@@ -20,7 +20,8 @@ parser.add_argument('--extra_channels',default='0',required=False,help="Puts ext
 parser.add_argument('--base_nn',default='',required=False,help="Where to load a pre-initialized nn from. (ignored if without --make_workspace, all other nn args may be ignored, amd --extra_channels should be specified to be this nn's value)")
 #parser.add_argument('--base_optim',default='',required=False,help="Where to load a pre-initialized optimizer from. (ignored if without --make_workspace, all other nn args may be ignored, amd --extra_channels should be specified to be this nn's value)")
 parser.add_argument('--inv_depth',default='0',required=False,help="Whether to use 1/depth or depth itself")
-
+parser.add_argument('--expand_environment',default='norm',required=False,help="What to use to pad environment if extra dimensions are needed (norm,zeros,ones)")
+parser.add_argument('--expand_points',default='norm',required=False,help="What to use to pad points if extra dimensions are needed (norm,zeros,ones)")
 #training
 parser.add_argument('--notrain',action='store_true',default=False,required=False,help="Specifies to not train the neural network")
 parser.add_argument('--batch_size',default='',required=False,help="Overrides default batch size(default is the dataset size)")
@@ -41,6 +42,7 @@ parser.add_argument('--sample_prefix',default='',required=False,help="Specifies 
 parser.add_argument('--sample_folder',default='.vscode/',required=False,help="Specifies where to save samples")
 parser.add_argument('--samples_every',default='-1',required=False,help="Specifies the # of batches to save an image at. requires sample_folder")
 parser.add_argument('--full_samples_final',default=False,required=False,action="store_true",help="Specifies the # of batches to save an image at. requires sample_folder")
+parser.add_argument('--screencap_folder',default='.vscode/',required=False,help="Specifies where to save any screencap taken with 'p'")
 
 #timeout/shutdown
 #TODO: do something with lambdas to make timeout simpler.
@@ -76,6 +78,8 @@ timeout_s=float(raw_args.timeout)
 max_batches = float(raw_args.max_batches)
 stagnation_batches,stagnation_p=int(raw_args.stagnation[0]),float(raw_args.stagnation[1])
 
+expand_environment=raw_args.expand_environment
+expand_points=raw_args.expand_points
 STRUCTURAL_REFINEMENT=raw_args.structural_refinement
 
 nn_args={"ndim":ndim}
@@ -93,6 +97,7 @@ sample_folder = raw_args.sample_folder
 samples_every = int(raw_args.samples_every)
 full_samples_final = bool(raw_args.full_samples_final)
 sample_prefix = raw_args.sample_prefix
+screencap_folder=str(raw_args.screencap_folder)
 
 if("PYSDL2_DLL_PATH" not in os.environ):
     raise Exception("\"PYSDL2_DLL_PATH\" is unset, SDL2 will not work. Please set \"PYSDL2_DLL_PATH\" either as a global variable or set it for this script")

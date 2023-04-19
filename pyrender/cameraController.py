@@ -19,6 +19,7 @@ class CameraController():
         self.flip_x=True
         self.shown_dim=0
         self.shown_ndim=3
+        self.take_screencap=False
     
     def camera_type(self):
         return 0#Only pinhole projection for now.
@@ -97,6 +98,9 @@ class CameraController():
                     self.key_state[6]=is_pressed
                 elif(keysym.sym==sdl2.SDLK_e):
                     self.key_state[7]=is_pressed
+                elif(keysym.sym==sdl2.SDLK_p):
+                    if(is_pressed):
+                        self.take_screencap=True
                 elif(keysym.sym==sdl2.SDLK_n and not is_pressed):
                     self.use_neural=not self.use_neural
                 elif(keysym.sym==sdl2.SDLK_f and not is_pressed):

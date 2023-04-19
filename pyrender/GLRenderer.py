@@ -271,3 +271,23 @@ class Renderer():
         data = bytearray( (255,0,0,255) )
         gl.glTexImage2D(gl.GL_TEXTURE_2D, 0, gl.GL_RGBA8, 1, 1, 0, gl.GL_RGBA, gl.GL_UNSIGNED_BYTE, data)
         GL_CHECK_ERROR("Opengl could not upload image data")
+    
+    def screencapViews(self,folder):
+        from torchvision.utils import save_image
+        import os
+        import time
+        self.ensureGL()
+        timestamp=time.strftime('%Y_%j_%H_%M_%S')
+        for v in self.views:
+            tex_id,*unused=self.views[v]
+            gl.glBindTexture(gl.GL_TEXTURE_2D, tex_id)
+            w=gl.glGetTexLevelParameteriv(gl.GL_TEXTURE_2D, 0, gl.GL_TEXTURE_WIDTH)
+            h=gl.glGetTexLevelParameteriv(gl.GL_TEXTURE_2D, 0, gl.GL_TEXTURE_HEIGHT)
+            img=gl.glGetTexImage(gl.GL_TEXTURE_2D, level=0, format=gl.GL_RGBA , type=gl.GL_UNSIGNED_BYTE)
+            img=bytearray(img)
+            #print(img)
+            tsr=torch.tensor(img,dtype=torch.uint8).reshape(list(map(int,[h,w,4]))).float().divide(255).transpose(0,2).transpose(1,2)
+            tsr[-1]=1#No need for transparency shenanigans
+            save_image(tsr,os.path.join(folder,f"{timestamp}_{v}.png"))
+        
+            pass
