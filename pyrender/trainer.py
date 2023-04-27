@@ -10,6 +10,7 @@ from torchmetrics.image.ssim import StructuralSimilarityIndexMeasure
 from torchmetrics.image.lpip import LearnedPerceptualImagePatchSimilarity
 import os
 import args
+import time
 
 psnr_module=PeakSignalNoiseRatio().cuda()
 ssim_module=StructuralSimilarityIndexMeasure().cuda()
@@ -49,8 +50,11 @@ if args.main_loss!='':
         if(args.main_loss=="l1+vgg"):
             USED_LOSS=args.main_loss
             get_loss=lambda x:x["lpips_vgg"]+x['l1']
-        else:
+        elif(not args.main_loss.startswith("i")):
             raise Exception(f"{args.main_loss} is not a known loss type. Available are {[*loss_functions]}(though ssim/psnr should never be used, and there are other special options like 'l1+vgg')")
+        else:
+            #DANGEROUS!
+            get_loss=lambda x:eval(args.main_loss[1:],x.copy(),x.copy())
 else:
     USED_LOSS="lpips_vgg"
     get_loss=lambda x:x[USED_LOSS]
@@ -74,18 +78,28 @@ error_test()
 
 
 class trainMetadata():
-    def __init__(self,path:str=None,hist:list=None,batches:int=None):
+    def __init__(self,path:str=None,hist:list=None,batches:int=None,run_hist=None,times=None):
         self.hist=[]
+        self.times=[]
         self.batches=0
+        self.run_hist={0:({i:getattr(args.raw_args,i) for i in dir(args.raw_args) if not i.startswith('_')},time.time())}
         if(path!=None):
             if(os.path.exists(path)):
                 fo=torch.load(path)
-                self.hist=fo.hist
-                self.batches=fo.batches
-            
+                self.hist=fo['hist']
+                self.batches=fo['batches']
+                true_run_hist={**fo['run_hist']} if 'run_hist' in fo else self.run_hist
+                true_run_hist[self.batches]=self.run_hist[0]
+                self.run_hist=true_run_hist
+                self.times=fo['times']
         elif(hist!=None and batches!=None):
             self.hist=hist
             self.batches=batches
+            self.run_hist=run_hist if run_hist!=None else self.run_hist
+            self.times=times if times!=None else [-1 for i in self.hist]
+        self.my_run=self.batches
+    def saveable(self):
+        return {'hist':self.hist,'batches':self.batches,'run_hist':self.run_hist,'times':self.times}
 
 metaData=trainMetadata()
 class GateConv(torch.nn.Module):
@@ -216,6 +230,7 @@ class MainModule_3(torch.nn.Module):
             raise Exception("ndim must be equal to 7 (4 extra channels) (rgb, x+/x-/y+/y-, depth/weight)")
         self.kp=torch.nn.Parameter(torch.tensor(1.).cuda())
         self.pp=torch.nn.Parameter(torch.tensor(1./12.).cuda())
+        self.dp=torch.nn.Parameter(torch.tensor(1./4.).cuda())
     
     def colors(self,tsr):
         return tsr[:,:,:-1]
@@ -239,7 +254,7 @@ class MainModule_3(torch.nn.Module):
     def apply_connectivity(self,plot):
         #return plot
         #xn_yn=plot
-        z=torch.zeros_like if not True else lambda x:x
+        z=torch.ones_like if True else torch.nn.Identity()
         xny0=torch.cat([z(plot[:,-1:]),  plot[:,:-1] ],1)
         xny1=torch.cat([  plot[:,1:]  ,z(plot[:,:1] )],1)
         x0yn=torch.cat([z(plot[-1:]  ),  plot[:-1]   ],0)
@@ -256,12 +271,14 @@ class MainModule_3(torch.nn.Module):
         s2=1/2#math.sqrt(2)
         d1=(           1/2)/(math.sqrt(3)/2 + 1/2) * self.kp
         d2=(math.sqrt(3)/2)/(math.sqrt(3)/2 + 1/2) * self.kp
+        s4=self.dp
         for (I1,J1,R1),(I2,J2,R2) in [
             # 2 main crosses. X and +
             ((0,0,((4,s2),(6,s2))),(2,2,((5,s2),(7,s2)))),#\
             ((0,2,((4,s2),(7,s2))),(2,0,((5,s2),(6,s2)))),#/
             ((1,0,((4, 1),      )),(1,2,((5, 1),      ))),#|
             ((0,1,((6, 1),      )),(2,1,((7, 1),      ))),#-
+            
             #Then theres also 8 knight moves. The way they're written is a bit of a mess...
             ((1,0,((5,d2),(6,d1))),(0,2,((4,d1),(7,d1)))),#A 1 /
             ((1,0,((5,d2),(7,d1))),(2,2,((4,d1),(6,d1)))),#A 2 \
@@ -274,6 +291,12 @@ class MainModule_3(torch.nn.Module):
                 
             ((0,0,((5,d1),(7,d2))),(2,1,((4,d1),(6,d2)))),#> 1 \
             ((2,1,((5,d1),(6,d2))),(0,2,((4,d1),(7,d2)))),#> 2 /
+            
+            #We can also consider the little diamond.
+            ((1,0,((4,s4),(6,s4))),(2,1,((5,s4),(7,s4)))),#\ left
+            ((1,0,((4,s4),(7,s4))),(1,0,((5,s4),(6,s4)))),#/ left
+            ((0,1,((4,s4),(6,s4))),(1,2,((5,s4),(7,s4)))),#\ right
+            ((1,2,((4,s4),(7,s4))),(2,1,((5,s4),(6,s4)))),#/ right
         ]:
             
             # w1=self.weight(x0y0)#xy_mat[I1-1][J1-1])#counted from 1 on accident. I blame octave.
@@ -419,7 +442,7 @@ from camera_utils import best_split_camera,downsize_camera,pad_camera,unpad_tens
 class trainer():
     def __init__(self,data:dataSet.DataSet,nn=None,optim:torch.optim.Adam=None,default_path=None,**options) -> None:
         self.nn = (build_main_module(**options).cuda() if nn==None else nn.cuda()).requires_grad_(args.nn_refinement)
-        self.pad = int(options['start_padding']) if 'start_padding' in options else int(2**self.nn.required_subplots())
+        self.pad = int(options['start_padding']) if 'start_padding' in options else int(2**(self.nn.required_subplots()))
         self.default_path=default_path
         self.optim=used_optim([
             {'params':self.nn.parameters()},{'params':data.parameters(),'lr':LR_DS}
@@ -453,7 +476,7 @@ class trainer():
         torch.save(self.nn,os.path.join(path,"model"))
         torch.save({"optim":self.optim.state_dict()},os.path.join(path,"optim"))
         global metaData
-        torch.save(metaData,os.path.join(path,"meta"))
+        torch.save(metaData.saveable(),os.path.join(path,"meta"))
         
         self.data.save_to(data_path)
         
@@ -509,6 +532,7 @@ class trainer():
                 for name in loss_functions:
                     total_diff[name]+=float(diff[name])
                 global get_loss
+                assert(get_loss(diff)>=0)
                 get_loss(diff).backward()
                 diff={}
         return total_diff
@@ -518,7 +542,7 @@ class trainer():
             #TODO: image split if necessary
             lum=camera_data[4]
             subplots=self.draw_subplots(scene,cam_type,pad_camera(camera_data,self.pad),self.nn.required_subplots())
-            img_float=unpad_tensor(self.forward(subplots),self.pad)
+            img_float=unpad_tensor(self.forward(subplots),self.pad)*camera_data[4]
             if(lum<=0):
                 lum=2/img_float.mean()
             return img_float*lum
@@ -548,6 +572,7 @@ class trainer():
                         dataSet.camera_updater(**updater)(camera+camera.grad*LR_CAM)
                 local_diff={}
             metaData.batches+=1
+            metaData.times.append(time.time())
             metaData.hist.append(diff)
             self.optim.step()
         except Exception as e:
@@ -574,12 +599,15 @@ class trainer():
         scene_id,cam_type,camera,target,*unused=self.test_dataloader_iter.next()
         target=torch.squeeze(target,0)
         cam_type=int(cam_type)
+        camera=camera[0] if camera.size(0)==1 else camera
         #TODO: ensure plot does not crash due to image size.
-        plots=self.draw_subplots(scene_id,cam_type,camera[0] if camera.size(0)==1 else camera,self.nn.required_subplots())
-        r.upload_tensor(points_view,plots[0])
+        cam_pad=pad_camera(camera,self.pad)
+        plots=self.draw_subplots(scene_id,cam_type,cam_pad,self.nn.required_subplots())
+        
+        r.upload_tensor(points_view,unpad_tensor(plots[0],self.pad))
         result = self.nn.forward(plots)
         r.upload_tensor(target_view,target)
-        r.upload_tensor(result_view,result)
+        r.upload_tensor(result_view,unpad_tensor(result,self.pad))
     
     def start_trainer_thread(self):
         assert('tt' not in dir(self))
@@ -600,6 +628,7 @@ class trainer():
         c=self.size_safe_forward_nograd(cam_type,camera,scene_id)
         if(title==None):
             title=f"i{id}_b{metaData.batches}"
+        if(not os.path.exists(args.sample_folder)):os.mkdir(args.sample_folder)
         save_image(c.transpose(-3,-1).transpose(-2,-1),os.path.join(args.sample_folder,args.sample_prefix+title+".png"))
     def save_all_samples(self):
         for i in range(len(self.data.trainImages)):
@@ -620,23 +649,21 @@ if(args.stagnation_batches!=-1):
         return stagnated
 import kernelItf
 class trainer_thread(Thread):
-    def __init__(self,parent,report_freq=120) -> None:
+    def __init__(self,parent) -> None:
         super().__init__()
         self.should_stop_training=False
-        self.report_freq=report_freq
         self.parent:trainer=parent
     def run(self):
-        from time import time
         self.parent.nn.train()
         self.parent.data.train()
         kernelItf.initialize()
-        last_save=last_report=s=time()
+        last_save=last_report=s=time.time()
         while(not self.should_stop_training):
             if(args.samples_every>0 and (TOTAL_BATCHES_THIS_RUN%args.samples_every==0)):
                 self.parent.save_one_()
             loss_this_batch=self.parent.train_one_batch()
-            e=time()
-            if(e-last_report>self.report_freq or self.should_stop_training and self.parent.report_batches>0):
+            e=time.time()
+            if(e-last_report>args.report_freq or self.should_stop_training and self.parent.report_batches>0):
                 l={loss:float(self.parent.report_losses[loss]/self.parent.report_batches) for loss in self.parent.report_losses}
                 print(f"Report: average loss is {l} in {self.parent.report_batches} batches")
                 dt=e-s
@@ -646,9 +673,9 @@ class trainer_thread(Thread):
                 self.parent.report_losses={}
                 self.parent.report_batches=0
             if(e-last_save>args.autosave_s):
-                tmp=time()
+                tmp=time.time()
                 print("autosaving...")
-                last_save=time()
+                last_save=time.time()
                 print(f"autosaved ({last_save-tmp}s)")
                 self.parent.save()
             if(args.stagnation_batches!=-1):

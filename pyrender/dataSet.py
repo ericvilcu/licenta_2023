@@ -9,7 +9,9 @@ def get_expansion_func(type:str):
     if(type=="zero" or type=="zeros"):
         return torch.zeros
     if(type=="one" or type=="ones"):
-        return lambda *dims,**kw:torch.ones(*dims,**kw)*20
+        return lambda *dims,**kw:torch.ones(*dims,**kw)
+    if(type=="-1"):
+        return lambda *dims,**kw:torch.ones(*dims,**kw)*-1
     raise Exception(f"Unknown expansion func {type}")
 class learnableData(torch.nn.Module):
     def __init__(self,fn:str=None,points:torch.Tensor=None,env:torch.Tensor=None,force_ndim=None) -> None:
@@ -70,11 +72,14 @@ class learnableData(torch.nn.Module):
                     environment: torch.Tensor=torch.cat((environment,append_environment),-1)
                     append_environment=None
                     environment=[environment.contiguous()]
+        import reorder
         self.environment:list[torch.Tensor]=torch.nn.ParameterList(environment)
-        self.points:torch.Tensor=torch.nn.Parameter(points)
+        self.points:torch.Tensor=torch.nn.Parameter(reorder.reorder(points))
+        environment=points=None
         
         self.points.requires_grad = args.refine_points
         self.environment.requires_grad = args.refine_points
+        self.to('cuda')
     
     def get_environment(self):
         if(self.environment_type in (0,2)):
@@ -148,18 +153,19 @@ def read_bytes(s:str,f:io.FileIO):
     return struct.unpack(s,f.read(struct.calcsize(s)))
 
 class camera_updater():
-    def __init__(self,cam_type,old_camera,path):
+    def __init__(self,cam_type,old_camera,path:list[str]):
         self.type=cam_type
         self.old=old_camera
         self.pth=path
     def __call__(self, new_camera):
         if(self.old.numel()!=new_camera.numel()):
             raise Exception('camera length not equal to previous camera')
-        with open(self.pth[0],'r+b') as f:
-            f.seek(0)
-            f.write(struct.pack("i",self.type))
-            f.write(struct.pack("IIII",int(new_camera[0]),int(new_camera[1]),int(new_camera[2]),int(new_camera[3])))
-            f.write(struct.pack("f"*len(new_camera[4:]),*map(float,new_camera[4:])))
+        if(self.pth[0].endswith('.bin')):
+            with open(self.pth[0],'r+b') as f:
+                f.seek(0)
+                f.write(struct.pack("i",self.type))
+                f.write(struct.pack("IIII",int(new_camera[0]),int(new_camera[1]),int(new_camera[2]),int(new_camera[3])))
+                f.write(struct.pack("f"*len(new_camera[4:]),*map(float,new_camera[4:])))
 
 
 class TrainImages(Dataset):
@@ -181,7 +187,7 @@ class TrainImages(Dataset):
     def __len__(self):
         return len(self.paths)
 
-    def __getitem__(self, idx) -> tuple[int, int, list[float], torch.Tensor]:
+    def __getitem__(self, idx:int) -> tuple[int, int, list[float], torch.Tensor]:
         #TODO: maybe implement formats for like a png and a camera.txt
         fn,scene_id=self.paths[idx]
         if(fn.endswith('.txt')):

@@ -92,8 +92,8 @@ struct PinholeCameraData:PartialCameraDataTemplate{
 		if (world_coords.z < near_clip || world_coords.z > far_clip) return ScreenCoordsWithDepth::invalid();
 		float inv_depth = 1/ world_coords.z;
 
-		int dx = (int)(-fx * world_coords.x * inv_depth + ppx - w0);
-		int dy = (int)(-fy * world_coords.y * inv_depth + ppy - h0);
+		int dx = lroundf(-fx * world_coords.x * inv_depth + ppx - w0);
+		int dy = lroundf(-fy * world_coords.y * inv_depth + ppy - h0);
 		if (dx < 0 || dy < 0 || dx >= w || dy >= h)return ScreenCoordsWithDepth::invalid();
 		return ScreenCoordsWithDepth(make_int2(dx, dy), world_coords.z);
 	};

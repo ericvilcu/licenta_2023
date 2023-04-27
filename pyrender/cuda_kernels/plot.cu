@@ -13,26 +13,11 @@
 #define CAMERA_GRAD 0
 #endif
 #include <cuda_runtime.h>
-//TODO: better split functions into their own subkernels
 
 float __hdfi__ test_depth(float my_depth, float min_depth){
     if(min_depth * (1 + 0.001) < my_depth) return -1;
     return 1;
 }
-//Step 1 of plotting:
-void __global__ translateKernelCharToSurface(cudaSurfaceObject_t output, const uchar4* colors, const int h, const int w, const int hd = 0, const int wd = 0) {
-    int idx = threadIdx.x + blockDim.x * blockIdx.x;
-    int idy = threadIdx.y + blockDim.y * blockIdx.y;
-    if (idx < h && idy < w) {
-        surf2Dwrite(colors[idy+wd + (hd+idx) * w], output, idy * sizeof(uchar4), idx, cudaBoundaryModeClamp);
-    }
-}
-//__global__ clear(float*color,float*weight,int mx,int my){
-//    int idx = threadIdx.x + blockDim.x * blockIdx.x;
-//    int idy = threadIdx.y + blockDim.y * blockIdx.y;
-//    if (idx < h && idy < w) {
-//    }
-//}
 
 void __global__ determine_depth(float* output, const float* points, int num_points, const float* camera_raw_data){
     Camera camera{camera_raw_data};
@@ -80,14 +65,13 @@ void __global__ plot(float* output, float* weights, const float* points, int num
         #pragma unroll
         for (int i = 0; i < NDIM; ++i) {
             float* p = &output[(NDIM + 1) * pixel + i];
-            atomicAdd(p, points[pos + 3 + i]);
+            atomicAdd(p, points[pos + 3 + i] * weight);
         }
         float* pixel_color_weight_location = &weights[pixel];
         atomicAdd(pixel_color_weight_location, weight);
     }
 }
 
-//todo: plot environment simultaniously
 void __global__ bundle(float* plot, float* weights, float* environment_data, const int h, const int w,const float* camera_raw_data){
     Camera camera{camera_raw_data};
     int idx = threadIdx.x + blockDim.x * blockIdx.x;
@@ -101,8 +85,8 @@ void __global__ bundle(float* plot, float* weights, float* environment_data, con
                 plot[plot_idx + i] = plot[plot_idx + i] / local_weight;
         } else {
             int plot_idx = pixel * (NDIM + 1);
-            float3 direction = camera.direction_for_pixel(make_float2(idx+0.5f,idy+0.5f));
-            sample_environment(&plot[plot_idx],environment_data,direction);
+            float3 direction = camera.direction_for_pixel(make_float2(idx,idy));
+            sample_environment(&plot[plot_idx],environment_data,direction);//NOTE: this function can be surprisingly heavy.
         }
     }
 }
@@ -169,8 +153,8 @@ void __global__ backward(float* camera_gradient, const float* camera_data, float
                 int pixelY1 = d.coords.x + (d.coords.y+1) * w;
                 float grad_X = 0.5f * (-compute_position_grad(pixelX0) + compute_position_grad(pixelX1));
                 float grad_Y = 0.5f * (-compute_position_grad(pixelY0) + compute_position_grad(pixelY1));
-                float3 pixel_direction = camera.direction_for_pixel(make_float2(d.coords.x+0.5f, d.coords.y+0.5f));
-                float3 wanted_direction = camera.direction_for_pixel(make_float2(d.coords.x + grad_X+0.5f, d.coords.y + grad_Y+0.5f));
+                float3 pixel_direction = camera.direction_for_pixel(make_float2(d.coords.x, d.coords.y));
+                float3 wanted_direction = camera.direction_for_pixel(make_float2(d.coords.x + grad_X, d.coords.y + grad_Y));
                 float3 gradient_screen_space = make_float3((pixel_direction.x - wanted_direction.x) * -depth, (pixel_direction.y - wanted_direction.y) * -depth, (pixel_direction.z - wanted_direction.z) * -depth);
                 point_grad_start[0] += gradient_screen_space.x;
                 point_grad_start[1] += gradient_screen_space.y;
@@ -199,7 +183,7 @@ void __global__ backward_pixel(float*cam_data_grad,
         int ids = idy + idx * w;
         if (weights[ids] > 0) {
             int ids_m = ids * (NDIM + 1);
-            float3 direction = camera.direction_for_pixel(make_float2(idx+0.5f, idy+0.5f));
+            float3 direction = camera.direction_for_pixel(make_float2(idx, idy));
             backward_environment(plot_grad+ids_m, environment, environment_grad, direction);
         }
     }

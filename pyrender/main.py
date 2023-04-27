@@ -65,6 +65,8 @@ if(args.timeout):
     should_close.append(lambda:e-s>=args.timeout_s)
 if(args.max_batches>=0):
     should_close.append(lambda:trainer.TOTAL_BATCHES_THIS_RUN>=args.max_batches)
+#if(args.max_total_batches>=0):
+#    should_close.append(lambda:trainer.metaData.batches>=args.max_total_batches)
 if(args.stagnation_batches!=-1):
     should_close.append(lambda:trainer.is_stagnant())
 should_close=stack_fun(should_close)

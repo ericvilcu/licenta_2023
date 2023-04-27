@@ -1,12 +1,14 @@
 import argparse
 import os
 #TODO: organize arguments so finding/modifying them is easier
-os.environ["CUDA_LAUNCH_BLOCKING"]='1'
+#os.environ["CUDA_LAUNCH_BLOCKING"]='1'
 parser=argparse.ArgumentParser(prog="NeuralRendererPython")
 #Required arg
 parser.add_argument('--workspace',required=True,default="",help="Specifies the workspace's location. This is the only mandatory argument.")
 #i don't know where to put this
 parser.add_argument('--autosaves',required=False,default="600",help="Specifies what interval to autosave the nn in so that I stop losing time to shit crashing.")
+parser.add_argument('--report_freq',required=False,default="60",help="Specifies what minimum interval of time to wait before displaying batch loss data.")
+parser.add_argument('--reorder_points',required=False,default='no',help="Specifies how to reorder point data. See 'reorder.py' for available types")
 
 #initialization,; ignored if w/o --make_workspace
 parser.add_argument('--make_workspace',required=False,action="store_true",default=False,help="Specifies to create a workspace.")
@@ -20,8 +22,8 @@ parser.add_argument('--extra_channels',default='0',required=False,help="Puts ext
 parser.add_argument('--base_nn',default='',required=False,help="Where to load a pre-initialized nn from. (ignored if without --make_workspace, all other nn args may be ignored, amd --extra_channels should be specified to be this nn's value)")
 #parser.add_argument('--base_optim',default='',required=False,help="Where to load a pre-initialized optimizer from. (ignored if without --make_workspace, all other nn args may be ignored, amd --extra_channels should be specified to be this nn's value)")
 parser.add_argument('--inv_depth',default='0',required=False,help="Whether to use 1/depth or depth itself")
-parser.add_argument('--expand_environment',default='norm',required=False,help="What to use to pad environment if extra dimensions are needed (norm,zeros,ones)")
-parser.add_argument('--expand_points',default='norm',required=False,help="What to use to pad points if extra dimensions are needed (norm,zeros,ones)")
+parser.add_argument('--expand_environment',default='norm',required=False,help="What to use to pad environment if extra dimensions are needed (norm,zeros,ones,-1)")
+parser.add_argument('--expand_points',default='norm',required=False,help="What to use to pad points if extra dimensions are needed (norm,zeros,ones,-1)")
 #training
 parser.add_argument('--notrain',action='store_true',default=False,required=False,help="Specifies to not train the neural network")
 parser.add_argument('--batch_size',default='',required=False,help="Overrides default batch size(default is the dataset size)")
@@ -47,7 +49,8 @@ parser.add_argument('--screencap_folder',default='.vscode/',required=False,help=
 #timeout/shutdown
 #TODO: do something with lambdas to make timeout simpler.
 parser.add_argument('--timeout',required=False,default='-1.0',help="Specifies how much time the program should automatically close in.")
-parser.add_argument('--max_batches',required=False,default='-1.0',help="Specifies many batches the nn should train for before the application closes itself. Note: may sometimes train slightly more than the specified amount.")
+parser.add_argument('--max_batches',required=False,default='-1',help="Specifies many batches the nn should train for before the application closes itself. Note: may sometimes train slightly more than the specified amount.")
+parser.add_argument('--max_total_batches',required=False,default='-1',help="Specifies many batches the nn should train for (including batches from previous runs) before the application closes itself. Note: may sometimes train slightly more than the specified amount.")
 parser.add_argument('--stagnation',required=False,default=('-1','-1'),nargs=2,help=r"Specifies the number of batches to look back on and average, as well as the % of change that is considered insignificant. For example, '--stagnation 10 0.01' means, naming the last 10 batches' average c and the average of the 10 batches before l, to stop when c*(1+0.01)>l")
 
 raw_args=parser.parse_args()
@@ -72,11 +75,14 @@ refine_points = not raw_args.no_point_refinement
 nn_refinement = not raw_args.no_nn_refinement
 camera_refinement = not raw_args.no_camera_refinement
 
+report_freq=float(raw_args.report_freq)
 autosave_s=float(raw_args.autosaves)
 timeout=(float(raw_args.timeout)>0)
 timeout_s=float(raw_args.timeout)
-max_batches = float(raw_args.max_batches)
+max_batches      =int(raw_args.max_batches      )
+max_total_batches=int(raw_args.max_total_batches)
 stagnation_batches,stagnation_p=int(raw_args.stagnation[0]),float(raw_args.stagnation[1])
+reorder_points=raw_args.reorder_points
 
 expand_environment=raw_args.expand_environment
 expand_points=raw_args.expand_points
