@@ -15,7 +15,7 @@ def reorder(data:torch.Tensor):
     else:
         raise Exception(f"point reordering type {args.refine_points} unknown")
     
-    print("STARTING SORT...")
+    print(f"STARTING sort of {len(data)} points.")
 
     original_device=data.device
     cpu_data=data.cpu()
@@ -28,7 +28,7 @@ def reorder(data:torch.Tensor):
         random.shuffle(blocks)
         cpu_data=[*chain(*blocks)]
     
-    print("ENDING SORT...")
+    print("ENDING sort.")
     global idx;idx=0
     return torch.stack(cpu_data).to(original_device)
 def morton_code_SLOW(data:torch.Tensor):
@@ -75,7 +75,7 @@ def morton_code(data:torch.Tensor):
     
     global idx
     idx+=1
-    if(idx%10000==0):print(idx)
+    if(idx%100000==0):print(idx)
     
     code=part1by2_64_3(x)<<2|(part1by2_64_3(y)<<1)|(part1by2_64_3(z))
     #code_slow=morton_code_SLOW(data)

@@ -18,7 +18,7 @@ lpips_module=LearnedPerceptualImagePatchSimilarity(net_type='alex').cuda()
 vgg_module=LearnedPerceptualImagePatchSimilarity(net_type='vgg').cuda()
 squeeze_module=LearnedPerceptualImagePatchSimilarity(net_type='squeeze').cuda()
 used_optim=torch.optim.Adam
-LR_NN=1e-2
+LR_NN=1e-2#TODO: arguments for these 3; for now i'll just set them manually
 LR_DS=1e-2
 LR_CAM=1e-5
 TOTAL_BATCHES_THIS_RUN=0
@@ -81,6 +81,8 @@ class trainMetadata():
     def __init__(self,path:str=None,hist:list=None,batches:int=None,run_hist=None,times=None):
         self.hist=[]
         self.times=[]
+        self.timesValidation=[]
+        self.histValidation=[]
         self.batches=0
         self.run_hist={0:({i:getattr(args.raw_args,i) for i in dir(args.raw_args) if not i.startswith('_')},time.time())}
         if(path!=None):
@@ -92,6 +94,8 @@ class trainMetadata():
                 true_run_hist[self.batches]=self.run_hist[0]
                 self.run_hist=true_run_hist
                 self.times=fo['times']
+                self.timesValidation=fo['timesValidation']
+                self.histValidation=fo['histValidation']
         elif(hist!=None and batches!=None):
             self.hist=hist
             self.batches=batches
@@ -99,7 +103,7 @@ class trainMetadata():
             self.times=times if times!=None else [-1 for i in self.hist]
         self.my_run=self.batches
     def saveable(self):
-        return {'hist':self.hist,'batches':self.batches,'run_hist':self.run_hist,'times':self.times}
+        return {'hist':self.hist,'batches':self.batches,'run_hist':self.run_hist,'times':self.times,'timesValidation':self.timesValidation,'histValidation':self.histValidation}
 
 metaData=trainMetadata()
 class GateConv(torch.nn.Module):
@@ -445,15 +449,21 @@ class trainer():
         self.pad = int(options['start_padding']) if 'start_padding' in options else int(2**(self.nn.required_subplots()))
         self.default_path=default_path
         self.optim=used_optim([
-            {'params':self.nn.parameters()},{'params':data.parameters(),'lr':LR_DS}
-        ],lr=LR_NN) if optim==None else optim
+            {'params':data.parameters(),'lr':LR_DS,'name':'data'},{'params':self.nn.parameters(),'name':'nn'}
+        ],lr=LR_NN)
         self.data=data
-        #TODO: split into train and validation. Maybe later.
-        self.train_dataloader = DataLoader(self.data.trainImages, batch_size=1, shuffle=True,)
+        
+        self.train_dataloader = DataLoader(dataSet.SubDataSet(self.data.trainImages,10,2,False), batch_size=1, shuffle=True)
         self.train_dataloader_iter = spin_iter(self.train_dataloader)
-        self.MAX_PIXELS_PER_PLOT=int(1e9)
-        self.test_dataloader = DataLoader(self.data.trainImages, batch_size=1, shuffle=False)
+        
+        self.validation_dataloader  = DataLoader(dataSet.SubDataSet(self.data.trainImages,10,2,True), batch_size=1, shuffle=False)
+        self.validation_iterator = spin_iter(self.validation_dataloader)
+        
+        self.test_dataloader  = DataLoader(self.data.trainImages, batch_size=1, shuffle=False)
         self.test_dataloader_iter = spin_iter(self.test_dataloader)
+        
+        
+        self.MAX_PIXELS_PER_PLOT=int(1e9)
         
         self.batch_size = int(options['batch_size']) if 'batch_size' in options else len(self.test_dataloader)
         self.report_losses={}
@@ -489,9 +499,11 @@ class trainer():
         metaData=trainMetadata(path=os.path.join(path,"meta"))
         nn=torch.load(os.path.join(path,"model"))
         optim=used_optim([
-            {'params':nn.parameters()},{'params':data.parameters(),'lr':LR_DS}
+            {'params':data.parameters(),'lr':LR_DS,'name':'data'},{'params':nn.parameters(),'name':'nn'}
         ],lr=LR_NN)
         optim.load_state_dict(torch.load(os.path.join(path,"optim"))['optim'])
+        optim.param_groups[0]['lr']=LR_NN if optim.param_groups[0]['name']=='nn' else LR_DS
+        optim.param_groups[1]['lr']=LR_NN if optim.param_groups[1]['name']=='nn' else LR_DS
         optim.zero_grad()
         t=trainer(data=data,nn=nn,optim=optim,**args,empty=True,default_path=path)
         return t
@@ -594,6 +606,57 @@ class trainer():
         global TOTAL_BATCHES_THIS_RUN
         TOTAL_BATCHES_THIS_RUN+=1
         return get_loss(diff)
+    
+    def _validate_one_unsafe(self,scene_id,cam_type,cameras:list[list[list[float]]],target):
+        subplots=self.nn.required_subplots()
+        total_diff={name:0. for name in loss_functions}
+        for row in cameras:
+            for cell in row:
+                with torch.no_grad():
+                    camera=cell
+                    plots=self.draw_subplots(scene_id,cam_type,pad_camera(camera,self.pad),subplots)
+                    rez=self.forward(plots)
+                    rez=unpad_tensor(rez,self.pad)*camera[4]
+                    diff=self.train_diff(rez,tensor_subsection(target,camera),1/(len(cameras)*len(row)*len(self.validation_iterator)))
+                    for name in loss_functions:
+                        total_diff[name]+=float(diff[name])
+                    #global get_loss
+                    #get_loss(diff).backward()
+                    diff={}
+        return total_diff
+    
+    def validate_one_batch(self):
+        try:
+            diff={name:0 for name in loss_functions}
+            for i in range(len(self.validation_iterator)):
+                scene_id,cam_type,camera,target,updater=next(iter(self.validation_iterator))
+                camera=camera[0]
+                camera.requires_grad=False#NOTE: I need to do something about that. Camera position/luminosity not being refined may be a problem.
+                target=torch.squeeze(target,0)
+                cam_type=int(cam_type)
+                W,H=camera[2],camera[3]
+                if(W*H>self.MAX_PIXELS_PER_PLOT):
+                    cams,W,H = best_split_camera(camera,self.MAX_PIXELS_PER_PLOT,expected_pad=self.pad)
+                else:
+                    cams=[[camera]]
+                
+                local_diff=self._validate_one_unsafe(scene_id,cam_type,cams,target)
+                for name in loss_functions:
+                    diff[name]+=float(local_diff[name])
+                
+                local_diff={}
+            metaData.timesValidation.append(time.time())
+            metaData.histValidation.append(diff)
+        except Exception as e:
+            if(type(e)==torch.cuda.OutOfMemoryError):
+                print("Memory error:",e,f"occurred, decreasing self.MAX_PIXELS_PER_PLOT to {W*H-1}; current batch has been skipped")
+                self.MAX_PIXELS_PER_PLOT=int(W*H-1)
+            elif(str(e)=="Unable to find a valid cuDNN algorithm to run convolution"):
+                print("Weird cuDNN error:",e,f"occurred, assuming it's because of memory and decreasing self.MAX_PIXELS_PER_PLOT to {W*H-1}; current batch has been skipped")
+                self.MAX_PIXELS_PER_PLOT=int(W*H-1)
+            else:raise e
+            if(self.MAX_PIXELS_PER_PLOT<4*self.pad*self.pad):raise Exception("MAX_PIXELS_PER_PLOT decreased too much. Your neural network might be too big to fit in your GPU memory")
+        return {**diff,'get_loss':get_loss(diff)}
         
     def display_results_to_renderer(self,r:GLRenderer.Renderer,points_view,result_view,target_view):
         scene_id,cam_type,camera,target,*unused=self.test_dataloader_iter.next()
@@ -633,6 +696,27 @@ class trainer():
     def save_all_samples(self):
         for i in range(len(self.data.trainImages)):
             self.save_one(i,title=f"final_{i}")
+            
+    def time_speed_for_all(self,reps=30):
+        import torch.utils.benchmark as benchmark
+        times:list[list[float]]=[]
+        times_back:list[list[float]]=[]
+        for data in self.data.trainImages:
+            scene_id,cam_type,camera,*unused =data
+            t0=benchmark.Timer(
+                stmt='rez=self.draw_subplots(*data);torch.cuda.synchronize()',
+                globals={'self':self,'data':[scene_id,int(cam_type),camera[0],self.nn.required_subplots()]})
+            metric=t0.timeit(reps)
+            times.append(metric.raw_times.copy())
+            
+            t1=benchmark.Timer(
+                setup='rez=sum([x.mean for x in self.draw_subplots(*data)]);torch.cuda.synchronize()',
+                stmt='rez.backward();torch.cuda.synchronize()',
+                globals={'self':self,'data':[scene_id,int(cam_type),camera[0],self.nn.required_subplots()]})
+            
+            metric1=t1.timeit(reps)
+            times.append(metric.raw_times.copy())
+        return times,times_back
 
 if(args.stagnation_batches!=-1):
     ln=[1e20]*args.stagnation_batches
@@ -658,16 +742,25 @@ class trainer_thread(Thread):
         self.parent.data.train()
         kernelItf.initialize()
         last_save=last_report=s=time.time()
+        unprinted_validation=False
         while(not self.should_stop_training):
             if(args.samples_every>0 and (TOTAL_BATCHES_THIS_RUN%args.samples_every==0)):
                 self.parent.save_one_()
             loss_this_batch=self.parent.train_one_batch()
+            if(TOTAL_BATCHES_THIS_RUN % args.validation_interval == 0):
+                validation_loss_this_batch=self.parent.validate_one_batch()
+                unprinted_validation=True
+                #print(f"Validation loss:{validation_loss_this_batch}")
             e=time.time()
             if(e-last_report>args.report_freq or self.should_stop_training and self.parent.report_batches>0):
                 l={loss:float(self.parent.report_losses[loss]/self.parent.report_batches) for loss in self.parent.report_losses}
                 print(f"Report: average loss is {l} in {self.parent.report_batches} batches")
+                if(unprinted_validation):
+                    print(f"Last validation:{validation_loss_this_batch}")
+                    unprinted_validation=False
                 dt=e-s
                 print(f"Total batches:{metaData.batches}(this run {TOTAL_BATCHES_THIS_RUN});Runtime={int(dt)//3600:02d}:{(int(dt)//60)%60:02d}:{int(dt)%60:02d}.{str(math.fmod(dt,1))[2:]}")
+                
                 l={}
                 last_report=e
                 self.parent.report_losses={}

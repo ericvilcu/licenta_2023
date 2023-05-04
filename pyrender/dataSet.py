@@ -219,3 +219,26 @@ class TrainImages(Dataset):
         else:
             raise Exception("did not implement reading torch images")
 
+
+class SubDataSet(Dataset):
+    def __init__(self,img:TrainImages,take=1,skip=0,invert=False) -> None:
+        super().__init__()
+        self.all_data=img
+        self.take=take
+        self.skip=skip
+        self.invert=invert
+    def __len__(self):
+        #NOT instant? todo? precalculation?
+        l1=len(self.all_data)
+        wrp=l1//(self.take+self.skip)
+        rem=l1%(self.take+self.skip)
+        tk=self.take if self.invert else self.skip
+        rem=min(rem,self.take) if self.invert else rem-min(rem,self.take)
+        return wrp*tk+rem
+    def __getitem__(self, idx:int):
+        siz=self.take+self.skip
+        off=(0 if self.invert else self.take)
+        p=(self.take if self.invert else self.skip)
+        idx_w=idx//p
+        idx_r=idx%p
+        return self.all_data.__getitem__(off + siz * idx_w + idx_r)

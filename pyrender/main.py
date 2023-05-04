@@ -14,9 +14,16 @@ from dataSet import DataSet
 import kernelItf
 import cameraController
 import sdl2
+import os
 
 def make_workspace():
     print(f"loading dataset from scenes={set(args.scenes)}")
+    
+    if(os.path.exists(args.workspace)):
+        print("WARN: WORKSPACE WILL BE OVERRIDDEN")
+        #input("PRESS ENTER TO CONFIRM")
+        #os.remove(args.workspace)
+    
     ds = DataSet(scenes=args.scenes,force_ndim=args.ndim)
     if(args.base_nn==''):
         t=trainer.trainer(ds,**args.nn_args)
@@ -65,8 +72,8 @@ if(args.timeout):
     should_close.append(lambda:e-s>=args.timeout_s)
 if(args.max_batches>=0):
     should_close.append(lambda:trainer.TOTAL_BATCHES_THIS_RUN>=args.max_batches)
-#if(args.max_total_batches>=0):
-#    should_close.append(lambda:trainer.metaData.batches>=args.max_total_batches)
+if(args.max_total_batches>=0):
+    should_close.append(lambda:trainer.metaData.batches>=args.max_total_batches)
 if(args.stagnation_batches!=-1):
     should_close.append(lambda:trainer.is_stagnant())
 should_close=stack_fun(should_close)
@@ -134,6 +141,22 @@ finally:
 
     if(args.full_samples_final):
         print("Saving all samples (this may take a while)")
+        start_save=time()
         t.save_all_samples()
+        end_save=time()
+        print(f"Saving all samples took {end_save-start_save}")
+    
+    
+    if(args.time_render_speed):
+        print("Timing render speed all samples (this may take a while)")
+        start_save=time()
+        times,backward_times=t.time_speed_for_all()
+        end_save=time()
+        print(f"Total time (includes loading) = {end_save-start_save}")
+        tf=torch.tensor(times)
+        tb=torch.tensor(times)
+        print(f"Average time (forward):{tf.mean()}, deviation:{tf.std()} {torch.std_mean(tf)}, median {tf.median()}, min/max {tf.min()}/{tf.max()}")
+        print(f"Average time (backward):{tb.mean()}, deviation:{tb.std()} {torch.std_mean(tb)}, median {tb.median()}, min/max {tb.min()}/{tb.max()}")
+    
     print("Cleanup...")
     kernelItf.cleanup()

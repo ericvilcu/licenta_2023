@@ -45,7 +45,7 @@ parser.add_argument('--sample_folder',default='.vscode/',required=False,help="Sp
 parser.add_argument('--samples_every',default='-1',required=False,help="Specifies the # of batches to save an image at. requires sample_folder")
 parser.add_argument('--full_samples_final',default=False,required=False,action="store_true",help="Specifies the # of batches to save an image at. requires sample_folder")
 parser.add_argument('--screencap_folder',default='.vscode/',required=False,help="Specifies where to save any screencap taken with 'p'")
-
+parser.add_argument('--time_render_speed',default=False,action='store_true',help="Specifies to time render time for all samples")
 #timeout/shutdown
 #TODO: do something with lambdas to make timeout simpler.
 parser.add_argument('--timeout',required=False,default='-1.0',help="Specifies how much time the program should automatically close in.")
@@ -88,6 +88,8 @@ expand_environment=raw_args.expand_environment
 expand_points=raw_args.expand_points
 STRUCTURAL_REFINEMENT=raw_args.structural_refinement
 
+time_render_speed=raw_args.time_render_speed
+
 nn_args={"ndim":ndim}
 
 if(raw_args.batch_size!=""):
@@ -107,3 +109,8 @@ screencap_folder=str(raw_args.screencap_folder)
 
 if("PYSDL2_DLL_PATH" not in os.environ):
     raise Exception("\"PYSDL2_DLL_PATH\" is unset, SDL2 will not work. Please set \"PYSDL2_DLL_PATH\" either as a global variable or set it for this script")
+
+
+#TODO:
+
+validation_interval=10
