@@ -465,7 +465,7 @@ class trainer():
         
         self.MAX_PIXELS_PER_PLOT=int(1e9)
         
-        self.batch_size = int(options['batch_size']) if 'batch_size' in options else len(self.test_dataloader)
+        self.batch_size = int(options['batch_size']) if 'batch_size' in options else len(self.train_dataloader)
         self.report_losses={}
         self.report_batches=0
     

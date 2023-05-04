@@ -232,13 +232,49 @@ class SubDataSet(Dataset):
         l1=len(self.all_data)
         wrp=l1//(self.take+self.skip)
         rem=l1%(self.take+self.skip)
-        tk=self.take if self.invert else self.skip
-        rem=min(rem,self.take) if self.invert else rem-min(rem,self.take)
+        tk=self.skip if self.invert else self.take
+        rem=rem-min(rem,self.take) if self.invert else min(rem,self.take)
         return wrp*tk+rem
     def __getitem__(self, idx:int):
         siz=self.take+self.skip
-        off=(0 if self.invert else self.take)
-        p=(self.take if self.invert else self.skip)
+        off=(self.take if self.invert else 0)
+        p=(self.skip if self.invert else self.take)
         idx_w=idx//p
         idx_r=idx%p
         return self.all_data.__getitem__(off + siz * idx_w + idx_r)
+    
+# def testSubDataSet():
+#     from torch.utils.data import DataLoader
+#     class tmpMock(Dataset):
+#         def __init__(self,sz=20) -> None:
+#             super().__init__()
+#             self.sz=20
+#         def __getitem__(self, index):
+#             return index
+#         def __len__(self):
+#             return self.sz
+    
+#     ds=tmpMock(20)
+#     all=DataLoader(SubDataSet(tmpMock(20)),batch_size=1, shuffle=False)
+#     trn=DataLoader(SubDataSet(ds,10,2,False), batch_size=1, shuffle=True)
+#     val=DataLoader(SubDataSet(ds,10,2,True ), batch_size=1, shuffle=False)
+#     assert(len(all)>len(val))
+#     assert(len(all)>len(trn))
+#     assert(len(trn)>len(val))
+#     assert(len(ds)==len(all))
+#     assert(len(trn)+len(val)==len(all))
+#     trn_s=set(map(int,trn))
+#     val_s=set(map(int,val))
+#     all_s=set(map(int,all))
+#     assert(len(trn_s)==len(trn))
+#     assert(len(val_s)==len(val))
+#     assert(len(all_s)==len(all))
+    
+#     assert(len(all_s)==len(trn_s.union(val_s)))
+#     assert(len(trn_s.intersection(val_s))==0)
+    
+    
+    
+#     pass
+
+# testSubDataSet()
