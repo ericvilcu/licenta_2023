@@ -19,7 +19,7 @@ vgg_module=LearnedPerceptualImagePatchSimilarity(net_type='vgg').cuda()
 squeeze_module=LearnedPerceptualImagePatchSimilarity(net_type='squeeze').cuda()
 used_optim=torch.optim.Adam
 LR_NN=1e-2#TODO: arguments for these 3; for now i'll just set them manually
-LR_DS=1e-2
+LR_DS=1e-3
 LR_CAM=1e-5
 TOTAL_BATCHES_THIS_RUN=0
 
@@ -701,22 +701,41 @@ class trainer():
         import torch.utils.benchmark as benchmark
         times:list[list[float]]=[]
         times_back:list[list[float]]=[]
+        times_nn:list[list[float]]=[]
+        times_back_nn:list[list[float]]=[]
         for data in self.data.trainImages:
             scene_id,cam_type,camera,*unused =data
             t0=benchmark.Timer(
+                setup='torch.cuda.synchronize()',
                 stmt='rez=self.draw_subplots(*data);torch.cuda.synchronize()',
                 globals={'self':self,'data':[scene_id,int(cam_type),camera[0],self.nn.required_subplots()]})
-            metric=t0.timeit(reps)
-            times.append(metric.raw_times.copy())
+            metric0=t0.timeit(reps)
+            times.append(metric0.raw_times.copy())
             
             t1=benchmark.Timer(
-                setup='rez=sum([x.mean for x in self.draw_subplots(*data)]);torch.cuda.synchronize()',
+                setup='rez=sum([x.mean() for x in self.draw_subplots(*data)]);torch.cuda.synchronize()',
                 stmt='rez.backward();torch.cuda.synchronize()',
                 globals={'self':self,'data':[scene_id,int(cam_type),camera[0],self.nn.required_subplots()]})
-            
             metric1=t1.timeit(reps)
-            times.append(metric.raw_times.copy())
-        return times,times_back
+            times_back.append(metric1.raw_times.copy())
+            
+            
+            t2=benchmark.Timer(
+                setup='torch.cuda.synchronize()',
+                stmt='rez=sum([self.nn.forward(x)]).mean();torch.cuda.synchronize()',
+                globals={'self':self,'data':[scene_id,int(cam_type),camera[0],self.nn.required_subplots()]})
+            metric2=t2.timeit(reps//5 + 1)
+            times_nn.append(metric2.raw_times.copy())
+            
+            
+            t3=benchmark.Timer(
+                setup='rez=sum([self.nn.forward(x)]).mean();torch.cuda.synchronize()',
+                stmt='rez.backward();torch.cuda.synchronize()',
+                globals={'self':self,'data':[scene_id,int(cam_type),camera[0],self.nn.required_subplots()]})
+            metric3=t3.timeit(reps//5 + 1)
+            times_back_nn.append(metric3.raw_times.copy())
+            
+        return times,times_back,times_nn,times_back_nn
 
 if(args.stagnation_batches!=-1):
     ln=[1e20]*args.stagnation_batches

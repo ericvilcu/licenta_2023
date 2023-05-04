@@ -20,9 +20,8 @@ def make_workspace():
     print(f"loading dataset from scenes={set(args.scenes)}")
     
     if(os.path.exists(args.workspace)):
-        print("WARN: WORKSPACE WILL BE OVERRIDDEN")
-        #input("PRESS ENTER TO CONFIRM")
-        #os.remove(args.workspace)
+        print("WARN: WORKSPACE MAY BE OVERRIDDEN")
+        print("WARN: THIS MAY CAUSE ERRORS.")
     
     ds = DataSet(scenes=args.scenes,force_ndim=args.ndim)
     if(args.base_nn==''):
@@ -124,7 +123,7 @@ except KeyboardInterrupt as ex:
     print("KeyboardInterrupt detected, stopping and saving...")
 except Exception as ex:
     print(repr(ex),ex.__traceback__)
-    args.full_samples_final=False#If it crashed, we probably shouldn't
+    args.time_render_speed=args.full_samples_final=False#If it crashed, we probably shouldn't sample/test things
     raise ex
 finally:
     
@@ -149,14 +148,19 @@ finally:
     
     if(args.time_render_speed):
         print("Timing render speed all samples (this may take a while)")
-        start_save=time()
-        times,backward_times=t.time_speed_for_all()
-        end_save=time()
-        print(f"Total time (includes loading) = {end_save-start_save}")
-        tf=torch.tensor(times)
-        tb=torch.tensor(times)
-        print(f"Average time (forward):{tf.mean()}, deviation:{tf.std()} {torch.std_mean(tf)}, median {tf.median()}, min/max {tf.min()}/{tf.max()}")
-        print(f"Average time (backward):{tb.mean()}, deviation:{tb.std()} {torch.std_mean(tb)}, median {tb.median()}, min/max {tb.min()}/{tb.max()}")
+        start_test=time()
+        times,backward_times,times_nn,backward_times_nn:list[list[float]]=t.time_speed_for_all()
+        end_test=time()
+        print(f"Total time (includes loading) = {end_test-start_test}")
+        rf=torch.tensor(times)
+        rb=torch.tensor(backward_times)
+        nf=torch.tensor(times_nn)
+        nb=torch.tensor(backward_times_nn)
+        print("Note: nn times were measured 5 times less")
+        print(f"Average time (forward  w/o nn):{rf.mean()}, deviation:{rf.std()} {torch.std_mean(rf)}, median {rf.median()}, min/max {rf.min()}/{rf.max()}")
+        print(f"Average time (backward w/o nn):{rb.mean()}, deviation:{rb.std()} {torch.std_mean(rb)}, median {rb.median()}, min/max {rb.min()}/{rb.max()}")
+        print(f"Average time (forward  w/  nn):{nf.mean()}, deviation:{nf.std()} {torch.std_mean(nf)}, median {nf.median()}, min/max {nf.min()}/{nf.max()}")
+        print(f"Average time (backward w/  nn):{nb.mean()}, deviation:{nb.std()} {torch.std_mean(nb)}, median {nb.median()}, min/max {nb.min()}/{nb.max()}")
     
     print("Cleanup...")
     kernelItf.cleanup()
