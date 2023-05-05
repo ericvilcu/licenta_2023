@@ -20,8 +20,7 @@ def make_workspace():
     print(f"loading dataset from scenes={set(args.scenes)}")
     
     if(os.path.exists(args.workspace)):
-        print("WARN: WORKSPACE MAY BE OVERRIDDEN")
-        print("WARN: THIS MAY CAUSE ERRORS.")
+        print("WARN: WORKSPACE MAY BE OVERRIDDEN; THIS MAY CAUSE ERRORS. YOU CAN DELETE IT MANUALLY TO FIX MOST OF THEM.")
     
     ds = DataSet(scenes=args.scenes,force_ndim=args.ndim)
     if(args.base_nn==''):
@@ -34,6 +33,9 @@ def make_workspace():
 
 
 if(args.make_workspace):
+    make_workspace()
+elif(not os.path.exists(args.workspace)):
+    print("WARNING: WORKSPACE DOES NOT EXIST AND WILL BE CREATED")
     make_workspace()
 
 print("loading workspace...")
@@ -149,7 +151,7 @@ finally:
     if(args.time_render_speed):
         print("Timing render speed all samples (this may take a while)")
         start_test=time()
-        times,backward_times,times_nn,backward_times_nn:list[list[float]]=t.time_speed_for_all()
+        times,backward_times,times_nn,backward_times_nn=t.time_speed_for_all()
         end_test=time()
         print(f"Total time (includes loading) = {end_test-start_test}")
         rf=torch.tensor(times)
