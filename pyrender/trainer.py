@@ -450,7 +450,7 @@ class trainer():
         self.default_path=default_path
         self.optim=used_optim([
             {'params':data.parameters(),'lr':LR_DS,'name':'data'},{'params':self.nn.parameters(),'name':'nn'}
-        ],lr=LR_NN)
+        ],lr=LR_NN) if optim==None else optim
         self.data=data
         
         self.train_dataloader = DataLoader(dataSet.SubDataSet(self.data.trainImages,10,2,False), batch_size=1, shuffle=True)
