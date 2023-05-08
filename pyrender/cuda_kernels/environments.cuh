@@ -110,8 +110,8 @@ __hdfi__ void sample_environment(float* out,const float* environment_data,float3
         //todo: backward sun + sun contribution
 
         float sun_radius=environment_data[SUN_RADIUS_IDX];
-        float sun_x=environment_data[SUN_POS_IDX];
-        float sun_z=environment_data[SUN_POS_IDX];
+        float sun_x=environment_data[SUN_POS_IDX+0];
+        float sun_z=environment_data[SUN_POS_IDX+1];
         float sun_y=1;
         float3 sun = norm(meke_float3(sun_x,sun_y,sun_z));
 
@@ -126,10 +126,10 @@ __hdfi__ void sample_environment(float* out,const float* environment_data,float3
                 out[i]+=environment_data[SUN_COLOR_IDX+i]*sun_factor;
         
         float contribution_radius=environment_data[SUN_SKY_RADIUS_IDX];
-        float sun_contribution=min(contribution_radius-sun_distance,1);
+        float sun_contribution=min(1-sun_distance/contribution_radius,1);
 
         if(sun_contribution>0){
-            float real_contribution=pow((sun_distance/contribution_radius),environment_data[SUN_SKY_BLEND_IDX]);
+            float real_contribution=pow(sun_contribution,environment_data[SUN_SKY_BLEND_IDX]);
             #pragma unroll
             for(int i=0;i<=NDIM;++i)
                 out[i]+=environment_data[SUN_COLOR_IDX+i]*real_contribution;
@@ -142,7 +142,7 @@ __hdfi__ void backward_environment(const float* pixel_grad, const float* environ
     
     float y=direction.y;
 
-    if(y<=0){
+    if(y<=0){//NOTE: I expect a lot of warps to fall under the same if, so threads keeping each other awake should be less of a problem than in other cases
         //sampling ground
         float qd=y*y;
         float c=pow(qd,environment_data[GROUND_BLEND_IDX]);
@@ -168,11 +168,10 @@ __hdfi__ void backward_environment(const float* pixel_grad, const float* environ
         }
         float exponent_grad=c * logf(qd) * c_grad;
         atomicAdd(&environment_grad[SKY_BLEND_IDX],exponent_grad);
-        //todo: sun + sun contribution
         
         float sun_radius=environment_data[SUN_RADIUS_IDX];
-        float sun_x=environment_data[SUN_POS_IDX];
-        float sun_z=environment_data[SUN_POS_IDX];
+        float sun_x=environment_data[SUN_POS_IDX+0];
+        float sun_z=environment_data[SUN_POS_IDX+1];
         float sun_y=1;
         float3 sun = norm(meke_float3(sun_x,sun_y,sun_z));
 
@@ -190,9 +189,10 @@ __hdfi__ void backward_environment(const float* pixel_grad, const float* environ
                 sun_factor_grad+=pixel_grad[i]*environment_data[SUN_COLOR_IDX+i];
             }
             if(sun_radius-sun_distance < 1){
-                sun_distance_grad-=sun_factor_grad;
                 float sun_radius_grad=sun_factor_grad;
                 atomicAdd(&environment_grad[SUN_RADIUS_IDX],sun_radius_grad);
+                
+                sun_distance_grad+=sun_factor_grad;
             }
         }
         
@@ -201,25 +201,45 @@ __hdfi__ void backward_environment(const float* pixel_grad, const float* environ
 
         //gradient calculations :|
         if(sun_contribution>0){
-            float real_contribution=pow((sun_distance/contribution_radius),environment_data[SUN_SKY_BLEND_IDX]);
+            float blend=environment_data[SUN_SKY_BLEND_IDX];
+            float contribution_fraction=(1-sun_distance/contribution_radius);
+
+            float real_contribution=powf(contribution_fraction,blend);
             float real_contribution_grad=0;
             #pragma unroll
             for(int i=0;i<=NDIM;++i){
                 atomicAdd(&environment_grad[SUN_SKY_COLOR_IDX+i],pixel_grad[i]*real_contribution);
                 real_contribution_grad+=pixel_grad[i]*environment_data[SUN_SKY_COLOR_IDX+i];
             }
-            if(contribution_radius-sun_distance < 1){
-                sun_distance_grad-=sun_factor_grad;
-                float sun_radius_grad=sun_factor_grad;
-                atomicAdd(&environment_grad[SUN_RADIUS_IDX],sun_radius_grad);
+            if(real_contribution < 1){
+                float blend_grad=real_contribution * logf(contribution_fraction);
+                atomicAdd(&environment_grad[SUN_SKY_BLEND_IDX],blend_grad);
+
+                float grad_fraction=blend * powf(contribution_fraction,(blend-1));
+                
+                float contribution_radius_grad= -grad_fraction / sun_distance;
+                if(contribution_radius_grad>0.1)contribution_radius_grad=0.1;//Needed to avoid some strange bs
+                else if(contribution_radius_grad<-0.1)contribution_radius_grad=-0.1;//Needed to avoid some strange bs
+                atomicAdd(&environment_grad[SUN_SKY_RADIUS_IDX],contribution_radius_grad);
+
+                sun_distance_grad+= -grad_fraction*contribution_radius;
             }
         }
 
 
         if(sun_distance_grad!=0){
-            //TODO: position gradient
-        }
+            float point_y=direction.y;
+            if(direction.y>0.01){
+                float projx=direction.x/direction.y;
+                float projz=direction.z/direction.z;
+                
+                float2 direction_to_sun=make_float2(sun_x-projx,sun_z-projz);//direction to sun from our point
+                //?NOTE: for 100% corectness, it should be divided by the positive value of the cosine between the direction and the sun
 
+                atomicAdd(environment_grad[SUN_POS_IDX+0],sun_distance_grad*direction_to_sun.x);
+                atomicAdd(environment_grad[SUN_POS_IDX+1],sun_distance_grad*direction_to_sun.y);
+            }
+        }
     }
 }
 #endif
@@ -274,6 +294,7 @@ __hdfi__ void sample_environment(float* out,const float* environment_data,float3
 
 
 __hdfi__ void backward_environment(const float* pixel_grad, const float* environment_data, float* environment_grad,float3 direction){
+    direction=norm(direction);
     int idx_s = pixel_from_cubemap_coords(cubemap_coords(direction));
     #pragma unroll
     for(int i=0;i<=NDIM;++i)

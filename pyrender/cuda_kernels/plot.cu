@@ -175,13 +175,13 @@ void __global__ backward_pixel(float*cam_data_grad,
     const float*camera_data,
     const float*plot, const float*plot_grad, const float*weights,
     int h,int w,
-    float* environment_grad,const float*environment){
+    const float* environment,float*environment_grad){
     Camera camera{camera_data};
     int idy = threadIdx.x + blockDim.x * blockIdx.x;
     int idx = threadIdx.y + blockDim.y * blockIdx.y;
     if (idy < h && idx < w) {
         int ids = idx + idy * w;
-        if (weights[ids] > 0) {
+        if (weights[ids] <= 0.0f) {
             int ids_m = ids * (NDIM + 1);
             float3 direction = camera.direction_for_pixel(make_float2(idx, idy));
             backward_environment(plot_grad+ids_m, environment, environment_grad, direction);

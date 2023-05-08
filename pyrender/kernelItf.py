@@ -183,7 +183,7 @@ def plotSinglePointsToTensor(cam_type:int,cam_data:(torch.Tensor or list[float])
         np.int32(h),
         np.int32(w),
         gpu_array(gpu_cam_data),
-        grid=(1+(h-1//square_max_thread_size[0]),1+(w-1//square_max_thread_size[1]),1),
+        grid=(1+((h-1)//square_max_thread_size[0]),1+((w-1)//square_max_thread_size[1]),1),
         block=square_max_thread_size
     )
     # if(cam_data[2]>=1370):
@@ -241,9 +241,9 @@ def plotSinglePointsBackwardsToTensor(weights:torch.Tensor,cam_type:int,cam_data
         gpu_array(gpu_cam_data),
         gpu_array(plot), gpu_array (plot_grad), gpu_array(weights),
         np.int32(h),np.int32(w),
-        gpu_array(environment_grad),gpu_array(env),
-        grid=(1+((num_points-1)//max_threads),1,1),
-        block=line_max_threads
+        gpu_array(env),gpu_array(environment_grad),
+        grid=(1+((h-1)//square_max_thread_size[0]),1+((w-1)//square_max_thread_size[1]),1),
+        block=square_max_thread_size
     )
     
     drv.Context.synchronize()
@@ -251,6 +251,7 @@ def plotSinglePointsBackwardsToTensor(weights:torch.Tensor,cam_type:int,cam_data
     if(points_grad.isnan().any()):
         print("BACKWARD RETURNED NANs!")
         return None,None,None
+    # print(*map(float,[environment_grad.min(),environment_grad.max(),environment_grad.mean(),environment_grad.sum()]),cam_data[2:4])
     return cam_data_grad,points_grad,environment_grad
 
 #This almost feels like a hack

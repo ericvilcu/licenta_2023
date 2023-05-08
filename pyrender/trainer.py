@@ -765,7 +765,7 @@ class trainer_thread(Thread):
             if(args.samples_every>0 and (TOTAL_BATCHES_THIS_RUN%args.samples_every==0)):
                 self.parent.save_one_()
             loss_this_batch=self.parent.train_one_batch()
-            if(TOTAL_BATCHES_THIS_RUN % args.validation_interval == 0):
+            if(args.validation_interval>0 and TOTAL_BATCHES_THIS_RUN % args.validation_interval == 0):
                 validation_loss_this_batch=self.parent.validate_one_batch()
                 unprinted_validation=True
                 #print(f"Validation loss:{validation_loss_this_batch}")
