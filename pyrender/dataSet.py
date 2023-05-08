@@ -63,13 +63,36 @@ class learnableData(torch.nn.Module):
                     append_environment=ee((extra,),device='cuda')
                     environment[0]=torch.cat([environment[0][:-1],append_environment,environment[0][-1:]])
                 elif(self.environment_type==1):
-                    ...#TODO
+                    gen_append=lambda x:torch.cat([x[:-1],ee((extra,),device='cuda'),x[-1:]])
+                    # 1. ground color (close)  
+                    environment[0]=gen_append(environment[0])
+                    # 2. ground color (horizon)
+                    environment[1]=gen_append(environment[1])
+                    # constexpr int GROUND_BLEND_IDX=GROUND2_IDX+NDIM+1;
+                    # 3. ground horizon blending
+                    # unmodified
+                    # 4. sky color (close)
+                    environment[3]=gen_append(environment[3])
+                    # 5. sky color (horizon)
+                    environment[4]=gen_append(environment[4])
+                    # 6. sky horizon blending
+                    # unmodified
+                    # 7. sun position
+                    # unmodified
+                    # 8. sun color
+                    environment[7]=gen_append(environment[7])
+                    # 9. sun radius
+                    # unmodified
+                    # 10. sun sky contribution
+                    environment[9]=gen_append(environment[9])
+                    # 11. sun sky radius          (1)
+                    # unmodified
                 elif(self.environment_type==2):
                     environment=environment[0]
                     es=list(environment.shape)
                     es[-1]=extra
                     append_environment=torch.randn(*es,device='cuda')
-                    environment: torch.Tensor=torch.cat((environment,append_environment),-1)
+                    environment: torch.Tensor=torch.cat((environment[:,:,:,:-1],append_environment,environment[:,:,:,-1:]),-1)#NOTE: depth is always the last one in line
                     append_environment=None
                     environment=[environment.contiguous()]
         import reorder

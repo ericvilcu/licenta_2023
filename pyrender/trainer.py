@@ -708,33 +708,32 @@ class trainer():
             t0=benchmark.Timer(
                 setup='torch.cuda.synchronize()',
                 stmt='rez=self.draw_subplots(*data);torch.cuda.synchronize()',
-                globals={'self':self,'data':[scene_id,int(cam_type),camera[0],self.nn.required_subplots()]})
-            metric0=t0.timeit(reps)
-            times.append(metric0.raw_times.copy())
+                globals={'self':self,'data':[scene_id,int(cam_type),camera,self.nn.required_subplots()]})
+            metric0=t0.timeit(number=reps)
+            times.append(metric0.mean)
             
             t1=benchmark.Timer(
                 setup='rez=sum([x.mean() for x in self.draw_subplots(*data)]);torch.cuda.synchronize()',
-                stmt='rez.backward();torch.cuda.synchronize()',
-                globals={'self':self,'data':[scene_id,int(cam_type),camera[0],self.nn.required_subplots()]})
-            metric1=t1.timeit(reps)
-            times_back.append(metric1.raw_times.copy())
+                stmt='rez.backward(retain_graph=True);torch.cuda.synchronize()',
+                globals={'self':self,'data':[scene_id,int(cam_type),camera,self.nn.required_subplots()]})
+            metric1=t1.timeit(number=reps)
+            times_back.append(metric1.mean)
             
             
             t2=benchmark.Timer(
                 setup='torch.cuda.synchronize()',
-                stmt='rez=sum([self.nn.forward(x)]).mean();torch.cuda.synchronize()',
-                globals={'self':self,'data':[scene_id,int(cam_type),camera[0],self.nn.required_subplots()]})
-            metric2=t2.timeit(reps//5 + 1)
-            times_nn.append(metric2.raw_times.copy())
+                stmt='rez=[self.nn.forward(self.draw_subplots(*data))];torch.cuda.synchronize()',
+                globals={'self':self,'data':[scene_id,int(cam_type),camera,self.nn.required_subplots()]})
+            metric2=t2.timeit(number=reps//5 + 1)
+            times_nn.append(metric2.mean)
             
             
             t3=benchmark.Timer(
-                setup='rez=sum([self.nn.forward(x)]).mean();torch.cuda.synchronize()',
-                stmt='rez.backward();torch.cuda.synchronize()',
-                globals={'self':self,'data':[scene_id,int(cam_type),camera[0],self.nn.required_subplots()]})
-            metric3=t3.timeit(reps//5 + 1)
-            times_back_nn.append(metric3.raw_times.copy())
-            
+                setup='rez=self.nn.forward(self.draw_subplots(*data));bck=torch.rand_like(rez);torch.cuda.synchronize()',
+                stmt='rez.backward(bck,retain_graph=True);torch.cuda.synchronize()',
+                globals={'self':self,'data':[scene_id,int(cam_type),camera,self.nn.required_subplots()]})
+            metric3=t3.timeit(number=reps//5 + 1)
+            times_back_nn.append(metric3.mean)
         return times,times_back,times_nn,times_back_nn
 
 if(args.stagnation_batches!=-1):

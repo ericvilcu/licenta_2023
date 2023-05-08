@@ -146,8 +146,8 @@ def patch_points(points_txt,custom_bin_path, extra_color_channels=0):
                 f.write(struct.pack("fff"+("f"*extra_color_channels), *map(lambda x:x/255,[R, G, B] +([0]*extra_color_channels))))
     return r/ncol,g/ncol,b/ncol
 
-def make_dummy_environment(custom_bin_path,type=1, extra_color_channels:int=0,resolution:int=512,clr=(0,0,0),depth:int=0,extra=None):
-    #We may also want to make a dummy environment    
+def make_dummy_environment(custom_bin_path,type=3, extra_color_channels:int=0,resolution:int=512,clr=(0,0,0),depth:int=-1,extra=None):
+    #We may also want to make a dummy environment
     clr = list(map(lambda x:clamp(x,0,1),clr))
     print("Color is:",clr)
     if(extra == None):extra = [0]*extra_color_channels
@@ -173,8 +173,31 @@ def make_dummy_environment(custom_bin_path,type=1, extra_color_channels:int=0,re
             for face in range(6):
                 for x in range(resolution):
                     for y in range(resolution):
+                        #clr = [face%2,(face//2) % 2,(face//4)%4]
                         #clr = [face/6,x/resolution,y/resolution]
                         f.write(struct.pack("fff"+("f"*extra_color_channels) + "f", *map(float,clr+([0]*extra_color_channels)+[depth])))
+        elif(type==2):
+            dnidm=4+extra_color_channels
+            dclrs=[*clr]+[0.]*extra_color_channels+[1e6]
+            f.write(struct.pack("q",13))#complex
+            f.write(struct.pack("qqf",1,1,type))              #TYPE
+            
+            f.write(struct.pack("qq"+"f"*dnidm,1,dnidm,dclrs))#GROUND
+            f.write(struct.pack("qq"+"f"*dnidm,1,dnidm,dclrs))#GROUND2 (near horizon)
+            f.write(struct.pack("qq"+"f",1,1,1))              #GROUND BLEND
+            
+            f.write(struct.pack("qq"+"f"*dnidm,1,dnidm,dclrs))#SKY
+            f.write(struct.pack("qq"+"f"*dnidm,1,dnidm,dclrs))#SKY2    (near horizon)
+            f.write(struct.pack("qq"+"f",1,1,1))              #SKY BLEND
+            
+            f.write(struct.pack("qq"+"f"*2,1,2,0,0))        #SUN POSITION
+            f.write(struct.pack("qq"+"f"*dnidm,1,dnidm,dclrs))#SUN COLOR
+            f.write(struct.pack("qq"+"f"*2,1,1,.1))           #SUN RADIUS
+            f.write(struct.pack("qq"+"f"*dnidm,1,dnidm,dclrs))#SUN SKY CONTRIBUTION COLOR
+            f.write(struct.pack("qq"+"f"*2,1,1,.5))           #SUN SKY CONTRIBUTION RADIUS
+            f.write(struct.pack("qq"+"f",1,1,1))              #SUN SKY CONTRIBUTION BLEND
+            
+            pass
 """
 Not sure if this is worth automating, I may want to configure some things manually for best speed/results
 """

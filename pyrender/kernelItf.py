@@ -146,7 +146,7 @@ def plotSinglePointsToTensor(cam_type:int,cam_data:(torch.Tensor or list[float])
     env=environment.cuda().contiguous()
 
 
-    module_name=f"plot CAM_TYPE={cam_type} NDIM={ndim} STRUCTURAL_REFINEMENT={int(args.STRUCTURAL_REFINEMENT)} ENVIRONMENT_TYPE={environment_type}"
+    module_name=f"plot CAM_TYPE={cam_type} NDIM={ndim} STRUCTURAL_REFINEMENT={int(args.STRUCTURAL_REFINEMENT)} ENVIRONMENT_TYPE={environment_type}{f' ENVIRONMENT_RESOLUTION={environment.size(-2)}' if environment_type==2 else ''}"
     plot_points = get_kernel(module_name,"plot")
     determine_depth = get_kernel(module_name,"determine_depth")
     bundle = get_kernel(module_name,"bundle")
@@ -208,7 +208,7 @@ def plotSinglePointsBackwardsToTensor(weights:torch.Tensor,cam_type:int,cam_data
     assert(points.is_contiguous())
     env=environment.cuda().contiguous()
     assert(plot_grad.is_contiguous())
-    module_name=f"plot CAM_TYPE={cam_type} NDIM={ndim} STRUCTURAL_REFINEMENT={int(args.STRUCTURAL_REFINEMENT)} ENVIRONMENT_TYPE={environment_type}"
+    module_name=f"plot CAM_TYPE={cam_type} NDIM={ndim} STRUCTURAL_REFINEMENT={int(args.STRUCTURAL_REFINEMENT)} ENVIRONMENT_TYPE={environment_type}{f' ENVIRONMENT_RESOLUTION={environment.size(-2)}' if environment_type==2 else ''}"
     
     cam_data_grad=torch.zeros_like(cam_data).contiguous()
     points_grad=torch.zeros_like(points).contiguous()

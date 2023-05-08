@@ -74,10 +74,10 @@ void __global__ plot(float* output, float* weights, const float* points, int num
 
 void __global__ bundle(float* plot, float* weights, float* environment_data, const int h, const int w,const float* camera_raw_data){
     Camera camera{camera_raw_data};
-    int idx = threadIdx.x + blockDim.x * blockIdx.x;
-    int idy = threadIdx.y + blockDim.y * blockIdx.y;
-    if (idx < h && idy < w) {
-        int pixel = idy + idx * w;
+    int idy = threadIdx.x + blockDim.x * blockIdx.x;
+    int idx = threadIdx.y + blockDim.y * blockIdx.y;
+    if (idy < h && idx < w) {
+        int pixel = idx + idy * w;
         if (weights[pixel] > 0) {
             int plot_idx = pixel * (NDIM + 1);
             float local_weight = weights[pixel];
@@ -177,10 +177,10 @@ void __global__ backward_pixel(float*cam_data_grad,
     int h,int w,
     float* environment_grad,const float*environment){
     Camera camera{camera_data};
-    int idx = threadIdx.x + blockDim.x * blockIdx.x;
-    int idy = threadIdx.y + blockDim.y * blockIdx.y;
-    if (idx < h && idy < w) {
-        int ids = idy + idx * w;
+    int idy = threadIdx.x + blockDim.x * blockIdx.x;
+    int idx = threadIdx.y + blockDim.y * blockIdx.y;
+    if (idy < h && idx < w) {
+        int ids = idx + idy * w;
         if (weights[ids] > 0) {
             int ids_m = ids * (NDIM + 1);
             float3 direction = camera.direction_for_pixel(make_float2(idx, idy));
