@@ -12,4 +12,4 @@ Be patient, as it LITERALLY has about 2GB of libraries to load before it starts.
 (mostly torchlib+cuda interop stuff)
 
 Documentation: https://www.overleaf.com/read/xfswjshhwvcz (WIP)
-NOTE: this may be rewritten in python and is more of a precursor project, as it is filled with bugs that I'm not sure are worth patching.
+NOTE: this has been rewritten in python and is more of a precursor project, as it is filled with bugs that I'm not sure are worth patching. Right now, due to changes in how data is stored, it is no longer functional and will probably be deleted soon.
