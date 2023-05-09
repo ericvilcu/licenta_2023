@@ -36,8 +36,8 @@ parser.add_argument('--loss_type',default='',help="Specifies which loss backward
 
 #visualization
 parser.add_argument('--norender',action='store_true',default=False,required=False,help="Specifies to ditch the main window entirely. note: currently breaks if you ctrl+c the app to stop, so make sure to specify timeout or max_batches")
-parser.add_argument('-W','--width',default='',required=False,help="Specifies window width")
-parser.add_argument('-H','--height',default='',required=False,help="Specifies window height")
+parser.add_argument('-W','--width',default='100',required=False,help="Specifies window width")
+parser.add_argument('-H','--height',default='100',required=False,help="Specifies window height")
 parser.add_argument('--example_interval',default='-1',required=False,help="Specifies the interval to wait before showing a new example image. (default is 4.0 if training, 0.5 otherwise)")
 #samples
 parser.add_argument('--sample_prefix',default='',required=False,help="Specifies a string to put before file names.")
