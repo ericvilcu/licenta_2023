@@ -44,12 +44,12 @@ print("workspace loaded...")
 ds = t.data
 
 if(args.live_render):
-    r = Renderer(**{'w':int(args.width),'h':int(args.height)})
+    r = Renderer(**{'w':int(args.width),'h':int(args.height)},window_name=('Visualization' if not args.train else 'Visualization (training in background)'))
     r.removeView('main')
     r.createView('interactive',0.,0.,.5,.5,0,True)
-    r.createView('render'     ,.5,0.,1.,.5,0,True)
-    r.createView('points'     ,0.,.5,.5,1.,0,True)
-    r.createView('target'     ,.5,.5,1.,1.,0,True)
+    r.createView('render'     ,.5,0.,1.,.5,0)
+    r.createView('points'     ,0.,.5,.5,1.,0)
+    r.createView('target'     ,.5,.5,1.,1.,0)
 
 #ds = DataSet(scenes=args.scenes)
 s=e=time()
@@ -85,6 +85,7 @@ if(args.train):
     t.start_trainer_thread()
 try:
     if(args.live_render):
+        samples_enabled=True
         while(not should_close()):#(not args.timeout or e-s<args.timeout_s) and (args.max_batches<0 or trainer.TOTAL_BATCHES_THIS_RUN<=args.max_batches)):
             if(r.is_window_minimized()):
                 r.sleep_until_not_minimized(60)
@@ -96,12 +97,25 @@ try:
                 
                 controller.process_sdl_events(ev,delta)
                 
+                if(controller.samples_enabled != samples_enabled):
+                    if(samples_enabled):
+                        #DISABLE SAMPLES
+                        r.createView('interactive',0.,0.,1,1,0,True)
+                        pass
+                    else:
+                        #ENABLE SAMPLES
+                        r.createView('interactive',0.,0.,.5,.5,0,True)
+                        r.createView('render'     ,.5,0.,1.,.5,0)
+                        r.createView('points'     ,0.,.5,.5,1.,0)
+                        r.createView('target'     ,.5,.5,1.,1.,0)
+                    samples_enabled=controller.samples_enabled
+                
                 if(controller.take_screencap):
                     r.screencapViews(args.screencap_folder)
                     controller.take_screencap=False
                     
                 
-                if(e-last_test_result>args.example_interval):
+                if(samples_enabled and e-last_test_result>args.example_interval):
                     last_test_result=e
                     t.display_results_to_renderer(r,'points','render','target')
                 #interactive view.

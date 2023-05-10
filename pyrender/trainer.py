@@ -150,7 +150,7 @@ class GateModule(torch.nn.Module):
 class MainModule_2(torch.nn.Module):
     def __init__(self,layers=1,subplots=4,ndim=3,empty=False,**unused_args):
         self.subplots=subplots
-        channels=ndim+1
+        channels=ndim+(args.depth_mode!='remove')
         super().__init__()
         if(empty):return
         padding=1
@@ -226,8 +226,10 @@ class MainModule_2(torch.nn.Module):
 class MainModule_3(torch.nn.Module):
     #NOTE: implementation is lazy
     def __init__(self, subplots=4, ndim=5, empty=False, **unused_args) -> None:
-        if(args.inv_depth!='1'):
-            print("WARN: this type of nn works poorly without \"--inv_depth 1\"  as arguments.")
+        if(args.depth_mode!='invert'):
+            print("WARN: this type of nn works poorly without \"--depth_mode invert\"  as arguments.")
+        if(args.depth_mode=='remove'):
+            raise Exception("This type of nn requires depth.")
         self.layers=subplots
         super().__init__()
         if(ndim!=7):
@@ -358,9 +360,10 @@ class MainModule_1(torch.nn.Module):
         padding=(kern-1)//2
         last_in=0
         self.in_layers=[];self.out_layers=[]
+        ndim_d=ndim+(args.depth_mode!='remove')
         for i in range(subplots):
             l=[]
-            last_in+=ndim+1
+            last_in+=ndim_d
             for j in range(layers):
                 if(not use_gates):
                     mdl=torch.nn.Conv2d(last_in,inter_ch,kernel_size=(kern,kern),padding=padding)
@@ -374,7 +377,7 @@ class MainModule_1(torch.nn.Module):
         self.in_layers=torch.nn.ModuleList(torch.nn.ModuleList(layer) for layer in self.in_layers)
         for i in range(subplots):
             l=[]
-            last_in+=ndim+1+inter_ch
+            last_in+=ndim_d+inter_ch
             for j in range(layers):
                 if(not use_gates):
                     mdl=torch.nn.Conv2d(last_in,inter_ch,kernel_size=(kern,kern),padding=padding)

@@ -113,11 +113,11 @@ __hdfi__ void sample_environment(float* out,const float* environment_data,float3
         float sun_x=environment_data[SUN_POS_IDX+0];
         float sun_z=environment_data[SUN_POS_IDX+1];
         float sun_y=1;
-        float3 sun = norm(meke_float3(sun_x,sun_y,sun_z));
+        float3 sun = norm(make_float3(sun_x,sun_y,sun_z));
 
         float sun_distance= abs(dot(direction,sun));
         //bad
-        float sun_factor=min(sun_radius-sun_distance,1);
+        float sun_factor=min(sun_radius-sun_distance,1.0f);
 
 
         if(sun_factor>0)
@@ -126,7 +126,7 @@ __hdfi__ void sample_environment(float* out,const float* environment_data,float3
                 out[i]+=environment_data[SUN_COLOR_IDX+i]*sun_factor;
         
         float contribution_radius=environment_data[SUN_SKY_RADIUS_IDX];
-        float sun_contribution=min(1-sun_distance/contribution_radius,1);
+        float sun_contribution=min(1-sun_distance/contribution_radius,1.0f);
 
         if(sun_contribution>0){
             float real_contribution=pow(sun_contribution,environment_data[SUN_SKY_BLEND_IDX]);
@@ -173,12 +173,12 @@ __hdfi__ void backward_environment(const float* pixel_grad, const float* environ
         float sun_x=environment_data[SUN_POS_IDX+0];
         float sun_z=environment_data[SUN_POS_IDX+1];
         float sun_y=1;
-        float3 sun = norm(meke_float3(sun_x,sun_y,sun_z));
+        float3 sun = norm(make_float3(sun_x,sun_y,sun_z));
 
         float sun_distance= abs(dot(direction,sun));
         float sun_distance_grad=0;
         //bad
-        float sun_factor=min(sun_radius-sun_distance,1);
+        float sun_factor=min(sun_radius-sun_distance,1.0f);
 
 
         if(sun_factor>0){
@@ -197,7 +197,7 @@ __hdfi__ void backward_environment(const float* pixel_grad, const float* environ
         }
         
         float contribution_radius=environment_data[SUN_SKY_RADIUS_IDX];
-        float sun_contribution=min(contribution_radius-sun_distance,1);
+        float sun_contribution=min(contribution_radius-sun_distance,1.0f);
 
         //gradient calculations :|
         if(sun_contribution>0){
@@ -228,16 +228,15 @@ __hdfi__ void backward_environment(const float* pixel_grad, const float* environ
 
 
         if(sun_distance_grad!=0){
-            float point_y=direction.y;
             if(direction.y>0.01){
                 float projx=direction.x/direction.y;
-                float projz=direction.z/direction.z;
+                float projz=direction.z/direction.y;
                 
                 float2 direction_to_sun=make_float2(sun_x-projx,sun_z-projz);//direction to sun from our point
-                //?NOTE: for 100% corectness, it should be divided by the positive value of the cosine between the direction and the sun
+                //?NOTE: for 100% corectness, it should be divided by the positive value of the cosine between the direction and the sun, but this has goodenough results
 
-                atomicAdd(environment_grad[SUN_POS_IDX+0],sun_distance_grad*direction_to_sun.x);
-                atomicAdd(environment_grad[SUN_POS_IDX+1],sun_distance_grad*direction_to_sun.y);
+                atomicAdd(&environment_grad[SUN_POS_IDX+0],sun_distance_grad*direction_to_sun.x);
+                atomicAdd(&environment_grad[SUN_POS_IDX+1],sun_distance_grad*direction_to_sun.y);
             }
         }
     }
@@ -245,7 +244,6 @@ __hdfi__ void backward_environment(const float* pixel_grad, const float* environ
 #endif
 
 //todo: cubemap?
-#if ENVIRONMENT_TYPE==2
 #ifndef ENVIRONMENT_RESOLUTION
 #define ENVIRONMENT_RESOLUTION 1024
 #endif

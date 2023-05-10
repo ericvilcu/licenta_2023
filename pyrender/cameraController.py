@@ -14,12 +14,12 @@ class CameraController():
         self.needs_rebuild=True
         self.camera=[0.]
         self.ypr=[0.]*3
-        self.fov=90
         self.position=[0.]*3
         self.flip_x=True
         self.shown_dim=0
         self.shown_ndim=3
         self.take_screencap=False
+        self.samples_enabled=True
     
     def camera_type(self):
         return 0#Only pinhole projection for now.
@@ -56,8 +56,7 @@ class CameraController():
     def rebuild_camera(self):
         self.needs_rebuild=False
         rotation:chain[float] = chain(*self.rotation_from(*self.ypr,flip_x=self.flip_x))
-        #af=math.atan(self.fov/180*math.pi)
-        #TODO: add shortcuts for controlling lightness
+        #TODO: add shortcuts for controlling lightness?
         self.camera=[0.,0.,self.CW,self.CH,1,*rotation,*self.position,self.CW/2,self.CH/2,700.,700.]#self.CW/2,self.CH/2]#*(2+9+3+4)
     
     def only_shown_dimensions(self,tsr:torch.Tensor):
@@ -96,7 +95,7 @@ class CameraController():
                     self.key_state[5]=is_pressed
                 elif(keysym.sym==sdl2.SDLK_LSHIFT):
                     self.key_state[6]=is_pressed
-                elif(keysym.sym==sdl2.SDLK_e):
+                elif(keysym.sym==sdl2.SDLK_r):
                     self.key_state[7]=is_pressed
                 elif(keysym.sym==sdl2.SDLK_p):
                     if(is_pressed):
@@ -111,6 +110,8 @@ class CameraController():
                     self.shown_dim-=1
                 elif(keysym.sym==sdl2.SDLK_KP_MULTIPLY and not is_pressed):
                     self.shown_ndim=4-self.shown_ndim
+                elif(keysym.sym==sdl2.SDLK_F5 and not is_pressed):
+                    self.samples_enabled=not self.samples_enabled
             else:
                 pass
         

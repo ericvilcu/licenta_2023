@@ -21,7 +21,7 @@ parser.add_argument('--use_gates',default='False',required=False,help="Specifies
 parser.add_argument('--extra_channels',default='0',required=False,help="Puts extra channels initially filled with gaussian noise onto points. (ignored if without --make_workspace)")
 parser.add_argument('--base_nn',default='',required=False,help="Where to load a pre-initialized nn from. (ignored if without --make_workspace, all other nn args may be ignored, amd --extra_channels should be specified to be this nn's value)")
 #parser.add_argument('--base_optim',default='',required=False,help="Where to load a pre-initialized optimizer from. (ignored if without --make_workspace, all other nn args may be ignored, amd --extra_channels should be specified to be this nn's value)")
-parser.add_argument('--inv_depth',default='0',required=False,help="Whether to use 1/depth or depth itself")
+parser.add_argument('--depth_mode',default='normal',required=False,help="Can be set to 'invert' to feed 1/depth into the nn, 'normal' to feed depth, or 'remove' to ignore it.")
 parser.add_argument('--expand_environment',default='norm',required=False,help="What to use to pad environment if extra dimensions are needed (norm,zeros,ones,-1)")
 parser.add_argument('--expand_points',default='norm',required=False,help="What to use to pad points if extra dimensions are needed (norm,zeros,ones,-1)")
 #training
@@ -59,7 +59,7 @@ nn_type=int(raw_args.nn_type)
 
 base_nn:str = raw_args.base_nn
 ndim=3+int(raw_args.extra_channels)
-inv_depth=raw_args.inv_depth
+depth_mode=raw_args.depth_mode
 scenes=[s[0] for s in raw_args.scene]
 width=raw_args.width
 height=raw_args.height
@@ -114,3 +114,5 @@ if("PYSDL2_DLL_PATH" not in os.environ):
 #TODO:
 
 validation_interval=10
+def get_input_channels():
+    return ndim+(depth_mode!='remove')

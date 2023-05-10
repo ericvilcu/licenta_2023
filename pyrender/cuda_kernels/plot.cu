@@ -119,6 +119,7 @@ void __global__ backward(float* camera_gradient, const float* camera_data, float
             }
             //estimate for point position refinement, based on: https://arxiv.org/pdf/2110.06635.pdf
             //Note: the edges of the image are iffy, so I exclude them.
+            //TODO: GO OVER THIS AGAIN; MAYBE REWRITE SOME STUFF
             if(STRUCTURAL_REFINEMENT!=0 && d.coords.x>0 && d.coords.y>0 && d.coords.x<w-1 && d.coords.y<h-1)//todo: verify the implementation at the camera level.
             {
                 auto compute_position_grad = [&](int pixel) -> float
@@ -141,18 +142,55 @@ void __global__ backward(float* camera_gradient, const float* camera_data, float
                             //blended with other points
                             float new_inv_weight = 1 / (pixel_weight+1);
                             for (int i = 0; i < NDIM; ++i) {
-                                d += new_inv_weight * (this_point_data[3 + i] - pixel_weight * pixel_data[i]) * pixel_grad[i];
+                                d += new_inv_weight * (weight*this_point_data[3 + i] - pixel_weight * pixel_data[i]) * pixel_grad[i];
                             }
                         }
                     }
                     return d;
                 };
+                float stability=1;
+
+#ifdef COMPUTE_STABILITY
+#if COMPUTE_STABILITY==1
+                auto compute_leave_grad = [&]() -> float
+                {
+                    const float* pixel_data = &plot[pixel * (NDIM + 1)];
+                    float pixel_depth = pixel_data[NDIM];
+                    const float* pixel_grad = &plot_grad[pixel * (NDIM + 1)];
+                    float pixel_weight = plot_weights[pixel];
+                    if (pixel_weight <= 0) {
+                        //overwrites background
+                        assert(false);
+                        return 0.5; //this should not happen;
+                    } else{
+                        float weight = test_depth(depth,pixel_depth);
+                        if (weight<=0) {
+                            assert(false);
+                            return 0.5; //this should also not happen;
+                        } else if(weight<=pixel_weight){
+                            return 0.5;//behind might be background or some other point. too hard to compute either way.
+                        } else {
+                            //blended with other points
+                            float new_inv_weight = 1 / (pixel_weight-1);
+                            float effect=0;
+                            for (int i = 0; i < NDIM; ++i) {
+                                //NOTE: negative gradient means positive movement
+                                effect -= new_inv_weight * (this_point_data[3 + i] - pixel_weight * pixel_data[i]) * pixel_grad[i];
+                            }
+                            if(effect<=0)return 1;
+                            return min(1.0f,1/(1+effect));
+                        }
+                    }
+                };
+                stability=compute_leave_grad();
+#endif
+#endif
                 int pixelX0 = (d.coords.x-1) + d.coords.y * w;
                 int pixelX1 = (d.coords.x+1) + d.coords.y * w;
                 int pixelY0 = d.coords.x + (d.coords.y-1) * w;
                 int pixelY1 = d.coords.x + (d.coords.y+1) * w;
-                float grad_X = 0.5f * (-compute_position_grad(pixelX0) + compute_position_grad(pixelX1));
-                float grad_Y = 0.5f * (-compute_position_grad(pixelY0) + compute_position_grad(pixelY1));
+                float grad_X = 0.5f * (-compute_position_grad(pixelX0) + compute_position_grad(pixelX1)) * stability;
+                float grad_Y = 0.5f * (-compute_position_grad(pixelY0) + compute_position_grad(pixelY1)) * stability;
                 float3 pixel_direction = camera.direction_for_pixel(make_float2(d.coords.x, d.coords.y));
                 float3 wanted_direction = camera.direction_for_pixel(make_float2(d.coords.x + grad_X, d.coords.y + grad_Y));
                 float3 gradient_screen_space = make_float3((pixel_direction.x - wanted_direction.x) * -depth, (pixel_direction.y - wanted_direction.y) * -depth, (pixel_direction.z - wanted_direction.z) * -depth);

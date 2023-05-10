@@ -14,7 +14,7 @@ else:
     LIMIT=sys.argv[3] if len(sys.argv)>3 else 'no'
 try:
     LIMIT=int(LIMIT)
-except ...:
+except Exception:
     LIMIT=-1
 
 L_DIR=pj(KITTI_DIR,"image_2")
