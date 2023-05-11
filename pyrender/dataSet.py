@@ -107,6 +107,8 @@ class learnableData(torch.nn.Module):
     def get_environment(self):
         if(self.environment_type in (0,2)):
             return self.environment[0]
+        elif(self.environment_type==-1):
+            return torch.Tensor()
         else:
             return torch.cat([param.reshape(param.numel()).cuda() for param in self.environment])
         
@@ -180,15 +182,17 @@ class camera_updater():
         self.type=cam_type
         self.old=old_camera
         self.pth=path
-    def __call__(self, new_camera):
-        if(self.old.numel()!=new_camera.numel()):
+    def __call__(self, camera, lr_grad):
+        if(self.old.numel()!=camera.numel() or lr_grad.numel()!=camera.numel()):
             raise Exception('camera length not equal to previous camera')
         if(self.pth[0].endswith('.bin')):
+            new_camera = camera - lr_grad
             with open(self.pth[0],'r+b') as f:
                 f.seek(0)
                 f.write(struct.pack("i",self.type))
                 f.write(struct.pack("IIII",int(new_camera[0]),int(new_camera[1]),int(new_camera[2]),int(new_camera[3])))
                 f.write(struct.pack("f"*len(new_camera[4:]),*map(float,new_camera[4:])))
+            
 
 
 class TrainImages(Dataset):

@@ -584,7 +584,7 @@ class trainer():
                 if(args.camera_refinement and type(camera)==torch.Tensor):
                     if(camera.grad!=None):
                         #TODO: get rid of magic number, somehow.
-                        dataSet.camera_updater(**updater)(camera+camera.grad*LR_CAM)
+                        dataSet.camera_updater(**updater)(camera,camera.grad*LR_CAM)
                 local_diff={}
             metaData.batches+=1
             metaData.times.append(time.time())
@@ -615,7 +615,7 @@ class trainer():
         total_diff={name:0. for name in loss_functions}
         for row in cameras:
             for cell in row:
-                with torch.no_grad():
+                if(args.camera_refinement):
                     camera=cell
                     plots=self.draw_subplots(scene_id,cam_type,pad_camera(camera,self.pad),subplots)
                     rez=self.forward(plots)
@@ -623,9 +623,22 @@ class trainer():
                     diff=self.train_diff(rez,tensor_subsection(target,camera),1/(len(cameras)*len(row)*len(self.validation_iterator)))
                     for name in loss_functions:
                         total_diff[name]+=float(diff[name])
-                    #global get_loss
-                    #get_loss(diff).backward()
+                    global get_loss
+                    get_loss(diff).backward()
                     diff={}
+                else:
+                    with torch.no_grad():
+                        camera=cell
+                        plots=self.draw_subplots(scene_id,cam_type,pad_camera(camera,self.pad),subplots)
+                        rez=self.forward(plots)
+                        rez=unpad_tensor(rez,self.pad)*camera[4]
+                        diff=self.train_diff(rez,tensor_subsection(target,camera),1/(len(cameras)*len(row)*len(self.validation_iterator)))
+                        for name in loss_functions:
+                            total_diff[name]+=float(diff[name])
+                        #global get_loss
+                        #get_loss(diff).backward()
+                        diff={}
+                    
         return total_diff
     
     def validate_one_batch(self):
@@ -646,10 +659,16 @@ class trainer():
                 local_diff=self._validate_one_unsafe(scene_id,cam_type,cams,target)
                 for name in loss_functions:
                     diff[name]+=float(local_diff[name])
+
+                if(args.camera_refinement and type(camera)==torch.Tensor):
+                    if(camera.grad!=None):
+                        #TODO: get rid of magic number, somehow.
+                        dataSet.camera_updater(**updater)(camera,camera.grad*LR_CAM)
                 
                 local_diff={}
             metaData.timesValidation.append(time.time())
             metaData.histValidation.append(diff)
+            self.optim.zero_grad()
         except Exception as e:
             if(type(e)==torch.cuda.OutOfMemoryError):
                 print("Memory error:",e,f"occurred, decreasing self.MAX_PIXELS_PER_PLOT to {W*H-1}; current batch has been skipped")

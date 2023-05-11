@@ -243,7 +243,7 @@ __hdfi__ void backward_environment(const float* pixel_grad, const float* environ
 }
 #endif
 
-//todo: cubemap?
+#if ENVIRONMENT_TYPE==2
 #ifndef ENVIRONMENT_RESOLUTION
 #define ENVIRONMENT_RESOLUTION 1024
 #endif

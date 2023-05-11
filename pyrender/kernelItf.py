@@ -164,7 +164,7 @@ def plotSinglePointsToTensor(cam_type:int,cam_data:(torch.Tensor or list[float])
         grid=(1+((num_points-1)//max_threads),1,1),
         block=line_max_threads
     )
-    drv.Context.synchronize()
+    #drv.Context.synchronize()#NOTE: might be unnecessary, as all ops happen on stream 0
     plot_points(
         gpu_array(plot),
         gpu_array(weights),
@@ -175,7 +175,7 @@ def plotSinglePointsToTensor(cam_type:int,cam_data:(torch.Tensor or list[float])
         grid=(1+((num_points-1)//max_threads),1,1),
         block=line_max_threads
     )
-    drv.Context.synchronize()
+    #drv.Context.synchronize()#NOTE: might be unnecessary, as all ops happen on stream 0
     bundle(
         gpu_array(plot),
         gpu_array(weights),
@@ -219,7 +219,8 @@ def plotSinglePointsBackwardsToTensor(weights:torch.Tensor,cam_type:int,cam_data
     backward = get_kernel(module_name,"backward")
     #per-pixel backward
     backward_pixel = get_kernel(module_name,"backward_pixel")
-    
+
+    torch.cuda.synchronize()
     #could run in parallel?
     backward(
         gpu_array(cam_data_grad),
@@ -234,7 +235,7 @@ def plotSinglePointsBackwardsToTensor(weights:torch.Tensor,cam_type:int,cam_data
     # if(delta!=0.0):
     #     print('b'+str(threading.currentThread().getName()),DBG_POSITIONS.float().mean(),DBG_POSITIONS.data_ptr())
     #     print('bd'+str(threading.currentThread().getName()),(LAST_DBG-DBG_POSITIONS).float().mean(),LAST_DBG.data_ptr())
-    
+    #drv.Context.synchronize()#NOTE: is unnecessary, as kernels write to two different tensors. might be parallelizable
     
     backward_pixel(
         gpu_array(cam_data_grad),
