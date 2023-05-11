@@ -149,11 +149,41 @@ struct PartialRadialCameraData :PartialCameraDataTemplate<PartialRadialCameraDat
 		return transform * coords;
 	};
 
+
+	
+	__hdfi__ interactiveRadialUndistortion(float* u, float* v){
+		//newton's method for function f(r)=r+r^3*k1+r^5*k2 -R, where r is the initial value and R is the distorted value
+		const size_t max_iter = 20;//100;
+		float r0=sqrt(*u**u+*v**v);//only in c++
+		const float R=r0;
+		const float expected_error = R*1e-12f;
+		for (size_t i = 0; i < 20; ++i) {
+			float r2=r0*r0;
+			float r4=r2*r2;
+			float slope=(1+3*r2*k1+5*r4*k2);
+			float value=r0*(1+r2*k1+5*r4*k2)-R;
+			float delta=value/slope;
+			r0=r0-delta;
+			if(delta<expected_error)
+				break;
+		}
+		*u*=r0/R;
+		*v*=r0/R;
+	}
+
+
+
+	//2 functions implemented based on COLMAP https://github.com/colmap/colmap/blob/master/src/base/camera_models.h
+	__hdfi__ void inverse(float4 J) const {
+		d = (J.x*J.w)-(J.z*J.y);
+		return make_float4(J.w/d,J.z/d,J.y/d,J.z/d);
+	}
+	//this is basically COLMAP's undistortion function which is made to work on any camera model. It can be simplified a lot probably. 
 	__hdfi__ void iterativeUndistortion(float* u, float* v) const {
 		// Parameters for Newton iteration using numerical differentiation with
 		// central differences, 100 iterations should be enough even for complex
 		// camera models with higher order terms.
-		const size_t kNumIterations = 5;//100;
+		const size_t kNumIterations = 20;//100;
 		const float kMaxStepNorm = 1e-10;
 		const float kRelStepSize = 1e-6;
 
@@ -180,6 +210,7 @@ struct PartialRadialCameraData :PartialCameraDataTemplate<PartialRadialCameraDat
 			J/*(0, 1)*/.y = (dx_1f.x - dx_1b.x) / (2 * step1);
 			J/*(1, 0)*/.z = (dx_0f.y - dx_0b.y) / (2 * step0);
 			J/*(1, 1)*/.w = 1 + (dx_1f.y - dx_1b.y) / (2 * step1);
+			J=inverse(J);
 			float2 xm = make_float2(x.x + dx.x - x0.x, x.y + dx.y - x0.y);
 			float2 step_x = make_float2(xm.x*J.x + xm.y*J.z, xm.x * J.y + xm.y * J.w);//correct?
 			x.x = step_x.x;
@@ -224,7 +255,7 @@ struct PartialRadialCameraData :PartialCameraDataTemplate<PartialRadialCameraDat
 		direction.x = -(uv.x - ppx) / fx;
 		direction.y = -(uv.y - ppy) / fy;
 
-		iterativeUndistortion(&direction.x, &direction.y);
+		interactiveRadialUndistortion(&direction.x, &direction.y);
 
 		return transform.unapply_rotation(direction);
 	}
