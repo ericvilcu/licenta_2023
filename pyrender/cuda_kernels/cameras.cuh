@@ -213,9 +213,9 @@ struct PartialRadialCameraData :PartialCameraDataTemplate<PartialRadialCameraDat
 		nx += du;
 		ny += dv;
 
-		int dx = (int)(-fx * nx + ppx);
-		int dy = (int)(-fy * ny + ppy);
-		if (dx < 0 || dy < 0 || dx >= w || dy >= h)return ScreenCoordsWithDepth(make_int2(dx, dy), world_coords.z, false);
+		int dx = lroundf(-fx * nx + ppx - w0);
+		int dy = lroundf(-fy * ny + ppy - h0);
+		if (dx < 0 || dy < 0 || dx >= w || dy >= h)return ScreenCoordsWithDepth::invalid();
 		return ScreenCoordsWithDepth(make_int2(dx, dy), world_coords.z);
 	};
 	__hdfi__ float3 direction_for_pixel(float2 uv) const {
@@ -226,7 +226,7 @@ struct PartialRadialCameraData :PartialCameraDataTemplate<PartialRadialCameraDat
 
 		iterativeUndistortion(&direction.x, &direction.y);
 
-		return transform.inverted_direction(direction);
+		return transform.unapply_rotation(direction);
 	}
 	PartialRadialCameraData() { fx = fy = k1 = k2 = ppx = ppy = near_clip = far_clip = 0; };
 };
