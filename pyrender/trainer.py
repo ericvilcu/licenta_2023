@@ -465,8 +465,7 @@ class trainer():
         self.test_dataloader  = DataLoader(self.data.trainImages, batch_size=1, shuffle=False)
         self.test_dataloader_iter = spin_iter(self.test_dataloader)
         
-        
-        self.MAX_PIXELS_PER_PLOT=int(1e9)
+        self.MAX_PIXELS_PER_PLOT_NOGRAD=self.MAX_PIXELS_PER_PLOT=int(1e9)
         
         self.batch_size = int(options['batch_size']) if 'batch_size' in options else len(self.train_dataloader)
         self.report_losses={}
@@ -552,15 +551,34 @@ class trainer():
                 diff={}
         return total_diff
 
-    def size_safe_forward_nograd(self,cam_type:int,camera_data:list[float],scene:int):
-        with torch.no_grad():
-            #TODO: image split if necessary
-            lum=camera_data[4]
-            subplots=self.draw_subplots(scene,cam_type,pad_camera(camera_data,self.pad),self.nn.required_subplots())
-            img_float=unpad_tensor(self.forward(subplots),self.pad)*camera_data[4]
-            if(lum<=0):
-                lum=2/img_float.mean()
-            return img_float*lum
+    def size_safe_forward_nograd(self,cam_type:int=None,camera:list[float]=None,scene:int=None):
+        try:
+            with torch.no_grad():
+                #TODO: image split if necessary
+                lum=camera[4]
+                
+                W,H=camera[2],camera[3]
+                if(W*H>self.MAX_PIXELS_PER_PLOT_NOGRAD):
+                    cams,W,H = best_split_camera(camera,self.MAX_PIXELS_PER_PLOT_NOGRAD,expected_pad=self.pad)
+                else:
+                    cams=[[camera]]
+                plots=[[self.nn.forward(self.draw_subplots(scene,cam_type,pad_camera(cam,self.pad),self.nn.required_subplots()))
+                        for cam in cam_col] for cam_col in cams]
+                plots=put_back_together(plots,self.pad)
+                if(lum<=0):
+                    lum=1/plots.mean()
+                return plots*lum
+        except Exception as e:
+            if(type(e)==torch.cuda.OutOfMemoryError):
+                print("Memory error:",e,f"occurred, decreasing self.MAX_PIXELS_PER_PLOT to {W*H-1}; current batch has been skipped")
+                self.MAX_PIXELS_PER_PLOT_NOGRAD=int(W*H-1)
+            elif(str(e)=="Unable to find a valid cuDNN algorithm to run convolution"):
+                print("Weird cuDNN error:",e,f"occurred, assuming it's because of memory and decreasing self.MAX_PIXELS_PER_PLOT to {W*H-1}; current batch has been skipped")
+                self.MAX_PIXELS_PER_PLOT_NOGRAD=int(W*H-1)
+            else:raise e
+            if(self.MAX_PIXELS_PER_PLOT_NOGRAD<4*self.pad*self.pad):raise Exception("MAX_PIXELS_PER_PLOT decreased too much. Your neural network might be too big to fit in your GPU memory")
+            lum=None;cams=None;plots=None;W=H=None
+            return self.size_safe_forward_nograd(cam_type,camera,scene)
         
     
     def train_one_batch(self):
@@ -681,18 +699,19 @@ class trainer():
         return {**diff,'get_loss':get_loss(diff)}
         
     def display_results_to_renderer(self,r:GLRenderer.Renderer,points_view,result_view,target_view):
-        scene_id,cam_type,camera,target,*unused=self.test_dataloader_iter.next()
-        target=torch.squeeze(target,0)
-        cam_type=int(cam_type)
-        camera=camera[0] if camera.size(0)==1 else camera
-        #TODO: ensure plot does not crash due to image size.
-        cam_pad=pad_camera(camera,self.pad)
-        plots=self.draw_subplots(scene_id,cam_type,cam_pad,self.nn.required_subplots())
-        
-        r.upload_tensor(points_view,unpad_tensor(plots[0],self.pad))
-        result = self.nn.forward(plots)
-        r.upload_tensor(target_view,target)
-        r.upload_tensor(result_view,unpad_tensor(result,self.pad))
+        with torch.no_grad():
+            scene_id,cam_type,camera,target,*unused=self.test_dataloader_iter.next()
+            target=torch.squeeze(target,0)
+            cam_type=int(cam_type)
+            camera=camera[0] if camera.size(0)==1 else camera
+            #TODO: ensure plot does not crash due to image size.
+            r.upload_tensor(target_view,target)
+            target=None
+            plots=self.draw_subplots(scene_id,cam_type,camera,1)
+            r.upload_tensor(points_view,plots[0])
+            plots=None
+            result = self.size_safe_forward_nograd(cam_type=cam_type,camera=camera,scene=scene_id)
+            r.upload_tensor(result_view,result)
     
     def start_trainer_thread(self):
         assert('tt' not in dir(self))

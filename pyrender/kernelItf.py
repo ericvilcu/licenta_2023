@@ -42,7 +42,7 @@ def ASSERT_DRV(err):
         raise RuntimeError("Unknown error type: {}".format(err))
 
 constructed_modules={}
-def prepend_includes(txt:str,loaded:set=None):
+def prepend_includes(txt:str,loaded:set=None,file_prefix:str='.'):
     if(loaded==None):
         loaded=set()
     prep=""
@@ -50,18 +50,19 @@ def prepend_includes(txt:str,loaded:set=None):
         idx=txt.find('\n')
         inc=txt[:idx]
         v=inc.split('"')[1]
-        if(os.path.exists(f"cuda_kernels/{v}")):
+        if(os.path.exists(os.path.join(file_prefix,"cuda_kernels",f"{v}"))):
             if(not v in loaded):
                 loaded.add(v)
-                prep=prep+prepend_includes(open(f"cuda_kernels/{v}").read(),loaded)
+                prep=prep+prepend_includes(open(os.path.join(file_prefix,"cuda_kernels",f"{v}")).read(),loaded,file_prefix=file_prefix)
             txt=txt[idx+1:]
         else:
             break
     return prep+txt
 
 def assemble_source(m:str):
-    d=m.split(' ')
-    src = open(f"cuda_kernels/{d[0]}.cu").read()
+    d: list[str]=m.split(' ')
+    file_prefix=os.path.split(os.path.abspath(__file__))[0]
+    src = open(os.path.join(file_prefix,f"cuda_kernels",f"{d[0]}.cu")).read()
     MACROS=d[1:]
     macros="".join(
         ["#define "+i.replace('=',' ')+'\n' for i in MACROS]
@@ -70,7 +71,7 @@ def assemble_source(m:str):
     #if(d[0]=='plot'):
         #src = macros+open(f"cuda_kernels/cameras.cuh").read()+'\n'+open(f"cuda_kernels/environments.cuh").read()+'\n'+open(f"cuda_kernels/{d[0]}.cu").read()
     #else:
-    src = macros+prepend_includes(open(f"cuda_kernels/{d[0]}.cu").read())
+    src = macros+prepend_includes(open(os.path.join(file_prefix,f"cuda_kernels",f"{d[0]}.cu")).read(),file_prefix=file_prefix)
     return src
 from pycuda._driver import Function as pyf
 import threading
@@ -146,7 +147,7 @@ def plotSinglePointsToTensor(cam_type:int,cam_data:(torch.Tensor or list[float])
     env=environment.cuda().contiguous()
 
 
-    module_name=f"plot CAM_TYPE={cam_type} NDIM={ndim} STRUCTURAL_REFINEMENT={int(args.STRUCTURAL_REFINEMENT)} ENVIRONMENT_TYPE={environment_type}{f' ENVIRONMENT_RESOLUTION={environment.size(-2)}' if environment_type==2 else ''}"
+    module_name=f"plot CAM_TYPE={cam_type} NDIM={ndim} STRUCTURAL_REFINEMENT={int(args.STRUCTURAL_REFINEMENT)} ENVIRONMENT_TYPE={environment_type}{f' ENVIRONMENT_RESOLUTION={environment.size(-2)}' if environment_type==2 else ''} COMPUTE_STABILITY={args.compute_stability}"
     plot_points = get_kernel(module_name,"plot")
     determine_depth = get_kernel(module_name,"determine_depth")
     bundle = get_kernel(module_name,"bundle")
@@ -208,7 +209,7 @@ def plotSinglePointsBackwardsToTensor(weights:torch.Tensor,cam_type:int,cam_data
     assert(points.is_contiguous())
     env=environment.cuda().contiguous()
     assert(plot_grad.is_contiguous())
-    module_name=f"plot CAM_TYPE={cam_type} NDIM={ndim} STRUCTURAL_REFINEMENT={int(args.STRUCTURAL_REFINEMENT)} ENVIRONMENT_TYPE={environment_type}{f' ENVIRONMENT_RESOLUTION={environment.size(-2)}' if environment_type==2 else ''}"
+    module_name=f"plot CAM_TYPE={cam_type} NDIM={ndim} STRUCTURAL_REFINEMENT={int(args.STRUCTURAL_REFINEMENT)} ENVIRONMENT_TYPE={environment_type}{f' ENVIRONMENT_RESOLUTION={environment.size(-2)}' if environment_type==2 else ''} COMPUTE_STABILITY={args.compute_stability}"
     
     cam_data_grad=torch.zeros_like(cam_data).contiguous()
     points_grad=torch.zeros_like(points).contiguous()
@@ -221,7 +222,7 @@ def plotSinglePointsBackwardsToTensor(weights:torch.Tensor,cam_type:int,cam_data
     backward_pixel = get_kernel(module_name,"backward_pixel")
 
     torch.cuda.synchronize()
-    #could run in parallel?
+    
     backward(
         gpu_array(cam_data_grad),
         gpu_array(gpu_cam_data),
@@ -235,7 +236,7 @@ def plotSinglePointsBackwardsToTensor(weights:torch.Tensor,cam_type:int,cam_data
     # if(delta!=0.0):
     #     print('b'+str(threading.currentThread().getName()),DBG_POSITIONS.float().mean(),DBG_POSITIONS.data_ptr())
     #     print('bd'+str(threading.currentThread().getName()),(LAST_DBG-DBG_POSITIONS).float().mean(),LAST_DBG.data_ptr())
-    #drv.Context.synchronize()#NOTE: is unnecessary, as kernels write to two different tensors. might be parallelizable
+    #drv.Context.synchronize()#NOTE: is unnecessary, as kernels write to two different tensors. would be parallelizable
     
     backward_pixel(
         gpu_array(cam_data_grad),

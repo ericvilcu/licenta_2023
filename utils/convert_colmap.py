@@ -146,7 +146,7 @@ def patch_points(points_txt,custom_bin_path, extra_color_channels=0):
                 f.write(struct.pack("fff"+("f"*extra_color_channels), *map(lambda x:x/255,[R, G, B] +([0]*extra_color_channels))))
     return r/ncol,g/ncol,b/ncol
 
-def make_dummy_environment(custom_bin_path,type=2, extra_color_channels:int=0,resolution:int=512,clr=(0,0,0),depth:int=-1,extra=None):
+def make_dummy_environment(custom_bin_path,type=3, extra_color_channels:int=0,resolution:int=512,clr=(0,0,0),depth:int=1e6,extra=None):
     #We may also want to make a dummy environment
     clr = list(map(lambda x:clamp(x,0,1),clr))
     print("Color is:",clr)
@@ -164,7 +164,7 @@ def make_dummy_environment(custom_bin_path,type=2, extra_color_channels:int=0,re
                 f.write(struct.pack("f",clr[i]))
             for i in range(extra_color_channels):
                 f.write(struct.pack("f",0.))
-            f.write(struct.pack("f",1e6))
+            f.write(struct.pack("f",depth))
         elif(type==3):
             f.write(struct.pack("q",2))
             f.write(struct.pack("qqf",1,1,type))
@@ -186,7 +186,7 @@ def make_dummy_environment(custom_bin_path,type=2, extra_color_channels:int=0,re
             dclrs_s=ylw+ [0 for d in dclrs  [3:-1]]+[1e6]
             dclrs_sc=[d*0.7 for d in dclrs_s[ :-1]]+[1e6]
             f.write(struct.pack("q",13))#13 sub-tensors
-            f.write(struct.pack("qqf",1,1,type))                 #TYPE
+            f.write(struct.pack("qqf",1,1,type))                  #TYPE
             
             f.write(struct.pack("qq"+"f"*dnidm,1,dnidm,*dclrs_g ))#GROUND
             f.write(struct.pack("qq"+"f"*dnidm,1,dnidm,*dclrs_hg))#GROUND2 (near horizon)

@@ -49,7 +49,7 @@ def best_split_camera(camera,MAX_PIXELS_PER_PLOT,expected_pad=0):
         row=[]
         for j in range(hm): 
             cpy=[float(i) for i in camera] if type(camera)==list else camera.clone()
-            w0,h0,w1,h1=(W0+(i)*H//wm),(H0+(j)*H//hm),(W0+(i+1)*W//wm),(H0+(j+1)*H//hm)
+            w0,h0,w1,h1=(W0+(i)*W//wm),(H0+(j)*H//hm),(W0+(i+1)*W//wm),(H0+(j+1)*H//hm)
             w,h=w1-w0,h1-h0
             cpy[0]=w0
             cpy[1]=h0
@@ -65,11 +65,11 @@ def tensor_subsection(tsr:torch.Tensor,cam:list[float]):
     return tsr[int(h0):int(h0)+int(h),int(w0):int(w0)+int(w)]
 def unpad_tensor(tsr:torch.Tensor,padding:int):
     return tsr[padding:-padding,padding:-padding]
-def put_back_together(tensors):
-    tsr=torch.zeros((0,))
+def put_back_together(tensors,unpad:int=0):
+    tsr=torch.zeros((0,),device=tensors[0][0].device)
     for row in tensors:
-        tsr_row=torch.zeros((0,))
-        for col in row:
-            torch.cat(tsr,tsr_row,0)
-        torch.cat(tsr,tsr_row,0)
+        tsr_row=torch.zeros((0,),device=tsr.device)
+        for cell in row:
+            tsr_row=torch.cat((tsr_row,unpad_tensor(cell,unpad)),0)
+        tsr=torch.cat((tsr,tsr_row),1)
     return tsr

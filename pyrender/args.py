@@ -32,10 +32,11 @@ parser.add_argument('--no_camera_refinement',default=False,required=False,action
 parser.add_argument('--no_nn_refinement',default=False,required=False,action='store_true',help="Specifies to not improve the nn")
 parser.add_argument('--no_point_refinement',default=False,required=False,action='store_true',help="Specifies to not improve point colors/positions")
 parser.add_argument('--structural_refinement',default=False,required=False,action='store_true',help="Specifies to use structural refinement")
+parser.add_argument('--compute_stability',default=False,required=False,action='store_true',help="Specifies whether to use stability in structural refinement")
 parser.add_argument('--loss_type',default='',help="Specifies which loss backward should be called for.")
 
 #visualization
-parser.add_argument('--norender',action='store_true',default=False,required=False,help="Specifies to ditch the main window entirely. note: currently breaks if you ctrl+c the app to stop, so make sure to specify timeout or max_batches")
+parser.add_argument('--norender',action='store_true',default=False,required=False,help="Specifies to not use any window at all. note: currently breaks if you ctrl+c the app to stop, so make sure to specify timeout or max_batches")
 parser.add_argument('-W','--width',default='100',required=False,help="Specifies window width")
 parser.add_argument('-H','--height',default='100',required=False,help="Specifies window height")
 parser.add_argument('--example_interval',default='-1',required=False,help="Specifies the interval to wait before showing a new example image. (default is 4.0 if training, 0.5 otherwise)")
@@ -87,6 +88,7 @@ reorder_points=raw_args.reorder_points
 expand_environment=raw_args.expand_environment
 expand_points=raw_args.expand_points
 STRUCTURAL_REFINEMENT=raw_args.structural_refinement
+compute_stability=1 if raw_args.compute_stability else 0
 
 time_render_speed=raw_args.time_render_speed
 

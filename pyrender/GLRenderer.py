@@ -4,6 +4,7 @@ import struct
 import numpy as np
 from itertools import chain
 import torch
+import os
 NULL = gl.ctypes.c_void_p(0)
 
 #TODO: make this function do nothing once you know OpenGL won't give you trouble
@@ -22,8 +23,10 @@ class Renderer():
         self.context = sdl2.SDL_GL_CreateContext(self.window)
         gl.glEnable(gl.GL_TEXTURE_2D)
         self.createView('main',0.0,0.0,1.0,1.0,0,False)
-        fp = open("openGL_shaders/frag.glsl"  ).read()
-        vp = open("openGL_shaders/vertex.glsl").read()
+        
+        file_prefix=os.path.split(os.path.abspath(__file__))[0]
+        fp = open(os.path.join(file_prefix,"openGL_shaders","frag.glsl"  )).read()
+        vp = open(os.path.join(file_prefix,"openGL_shaders","vertex.glsl")).read()
         vs = gl.glCreateShader(gl.GL_VERTEX_SHADER)
         fs = gl.glCreateShader(gl.GL_FRAGMENT_SHADER)
         gl.glShaderSource(vs, vp)
@@ -84,7 +87,6 @@ class Renderer():
 
                 gl.glTexImage2D(gl.GL_TEXTURE_2D, 0, gl.GL_RGBA8, w, h, 0, gl.GL_RGBA, gl.GL_UNSIGNED_BYTE, NULL)
                 GL_CHECK_ERROR("Texture could not be resized")
-                #TODO: update other parameters.
 
     def ensureGL(self):
         sdl2.SDL_GL_MakeCurrent(self.window,self.context)
@@ -166,7 +168,8 @@ class Renderer():
         #NOTE: Throws error" PyCUDA was compiled without GL extension support"
         #import pycuda.gl.autoinit
         #import pycuda.gl as cu_gl
-        #TODO: find a way around this so you don't copy the data back and forth like an idiot
+        #I might be able to improve this if I find a to not copy the data back and forth between CPU-GPU like this.
+        #On the other hand, this has 0 problems when the OpenGL context is on another GPU and not the CUDA one.
         view=self.views[view_name]
         tex_id = view[0]
         #print(rgb[::,::,:-1:].mean(),rgb[::,::,:-1:].max(),rgb[::,::,:-1:].min())
