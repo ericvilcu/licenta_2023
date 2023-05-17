@@ -60,7 +60,7 @@ else:
     get_loss=lambda x:x[USED_LOSS]
 
 def error_test():
-    #An error recommended I try this to check for some error.
+    #An error message recommended I try this to check for some error.
     import torch
     torch.backends.cuda.matmul.allow_tf32 = False
     torch.backends.cudnn.benchmark = False
@@ -570,13 +570,13 @@ class trainer():
                 return plots*lum
         except Exception as e:
             if(type(e)==torch.cuda.OutOfMemoryError):
-                print("Memory error:",e,f"occurred, decreasing self.MAX_PIXELS_PER_PLOT to {W*H-1}; current batch has been skipped")
+                print("Memory error:",e,f"occurred, decreasing self.MAX_PIXELS_PER_PLOT_NOGRAD to {W*H-1}; current batch has been skipped")
                 self.MAX_PIXELS_PER_PLOT_NOGRAD=int(W*H-1)
             elif(str(e)=="Unable to find a valid cuDNN algorithm to run convolution"):
-                print("Weird cuDNN error:",e,f"occurred, assuming it's because of memory and decreasing self.MAX_PIXELS_PER_PLOT to {W*H-1}; current batch has been skipped")
+                print("Weird cuDNN error:",e,f"occurred, assuming it's because of memory and decreasing self.MAX_PIXELS_PER_PLOT_NOGRAD to {W*H-1}; current batch has been skipped")
                 self.MAX_PIXELS_PER_PLOT_NOGRAD=int(W*H-1)
             else:raise e
-            if(self.MAX_PIXELS_PER_PLOT_NOGRAD<4*self.pad*self.pad):raise Exception("MAX_PIXELS_PER_PLOT decreased too much. Your neural network might be too big to fit in your GPU memory")
+            if(self.MAX_PIXELS_PER_PLOT_NOGRAD<4*self.pad*self.pad):raise Exception("MAX_PIXELS_PER_PLOT_NOGRAD decreased too much. Your neural network might be too big to fit in your GPU memory")
             lum=None;cams=None;plots=None;W=H=None
             return self.size_safe_forward_nograd(cam_type,camera,scene)
         
@@ -605,9 +605,17 @@ class trainer():
                         dataSet.camera_updater(**updater)(camera,camera.grad*LR_CAM)
                 local_diff={}
             metaData.batches+=1
+            global TOTAL_BATCHES_THIS_RUN
+            TOTAL_BATCHES_THIS_RUN+=1
             metaData.times.append(time.time())
             metaData.hist.append(diff)
             self.optim.step()
+            for name in diff:
+                if name in self.report_losses:
+                    self.report_losses[name]+=diff[name]
+                else:
+                    self.report_losses[name]=diff[name]
+            self.report_batches+=1
         except Exception as e:
             if(type(e)==torch.cuda.OutOfMemoryError):
                 print("Memory error:",e,f"occurred, decreasing self.MAX_PIXELS_PER_PLOT to {W*H-1}; current batch has been skipped")
@@ -618,14 +626,6 @@ class trainer():
             else:raise e
             if(self.MAX_PIXELS_PER_PLOT<4*self.pad*self.pad):raise Exception("MAX_PIXELS_PER_PLOT decreased too much. Your neural network might be too big to fit in your GPU memory")
         self.optim.zero_grad()
-        for name in diff:
-            if name in self.report_losses:
-                self.report_losses[name]+=diff[name]
-            else:
-                self.report_losses[name]=diff[name]
-        self.report_batches+=1
-        global TOTAL_BATCHES_THIS_RUN
-        TOTAL_BATCHES_THIS_RUN+=1
         return get_loss(diff)
     
     def _validate_one_unsafe(self,scene_id,cam_type,cameras:list[list[list[float]]],target):
@@ -744,7 +744,7 @@ class trainer():
         times_back:list[list[float]]=[]
         times_nn:list[list[float]]=[]
         times_back_nn:list[list[float]]=[]
-        for data in self.data.trainImages:
+        for idx,data in enumerate(self.data.trainImages):
             scene_id,cam_type,camera,*unused =data
             t0=benchmark.Timer(
                 setup='torch.cuda.synchronize()',
@@ -775,6 +775,7 @@ class trainer():
                 globals={'self':self,'data':[scene_id,int(cam_type),camera,self.nn.required_subplots()]})
             metric3=t3.timeit(number=reps//5 + 1)
             times_back_nn.append(metric3.mean)
+            print(f"Image {idx+1} benchmark complete")
         return times,times_back,times_nn,times_back_nn
 
 if(args.stagnation_batches!=-1):

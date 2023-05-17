@@ -165,7 +165,7 @@ def plotSinglePointsToTensor(cam_type:int,cam_data:(torch.Tensor or list[float])
         grid=(1+((num_points-1)//max_threads),1,1),
         block=line_max_threads
     )
-    #drv.Context.synchronize()#NOTE: might be unnecessary, as all ops happen on stream 0
+    #drv.Context.synchronize()#NOTE: unnecessary, as all ops happen on stream 0
     plot_points(
         gpu_array(plot),
         gpu_array(weights),
@@ -176,7 +176,7 @@ def plotSinglePointsToTensor(cam_type:int,cam_data:(torch.Tensor or list[float])
         grid=(1+((num_points-1)//max_threads),1,1),
         block=line_max_threads
     )
-    #drv.Context.synchronize()#NOTE: might be unnecessary, as all ops happen on stream 0
+    #drv.Context.synchronize()#NOTE: unnecessary, as all ops happen on stream 0
     bundle(
         gpu_array(plot),
         gpu_array(weights),
@@ -236,7 +236,7 @@ def plotSinglePointsBackwardsToTensor(weights:torch.Tensor,cam_type:int,cam_data
     # if(delta!=0.0):
     #     print('b'+str(threading.currentThread().getName()),DBG_POSITIONS.float().mean(),DBG_POSITIONS.data_ptr())
     #     print('bd'+str(threading.currentThread().getName()),(LAST_DBG-DBG_POSITIONS).float().mean(),LAST_DBG.data_ptr())
-    #drv.Context.synchronize()#NOTE: is unnecessary, as kernels write to two different tensors. would be parallelizable
+    #drv.Context.synchronize()#NOTE: is unnecessary, as kernels write to two different tensors. would be parallelizable, but since even on different streams they would both lock the same buffer, it isn't plausible on a single GPU
     
     backward_pixel(
         gpu_array(cam_data_grad),

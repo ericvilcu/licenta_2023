@@ -292,5 +292,3 @@ class Renderer():
             tsr=torch.tensor(img,dtype=torch.uint8).reshape(list(map(int,[h,w,4]))).float().divide(255).transpose(0,2).transpose(1,2)
             tsr[-1]=1#No need for transparency shenanigans
             save_image(tsr,os.path.join(folder,f"{timestamp}_{v}.png"))
-        
-            pass

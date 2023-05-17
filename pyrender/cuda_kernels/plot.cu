@@ -109,7 +109,8 @@ void __global__ backward(float* camera_gradient, const float* camera_data, float
             float weight = test_depth(depth,pixel_depth);
             const float* grad_start = &plot_grad[pixel * (NDIM + 1)];
             float* point_grad_start = &(point_grad[ids]);
-            if (weight>0){
+            bool visible= (weight>0);
+            if (visible){
                 float pixel_weight = plot_weights[pixel];
                 float weight_fraction = pixel_weight / weight;
                 float* point_color_grad_start = &(point_grad_start[3]);
@@ -125,7 +126,7 @@ void __global__ backward(float* camera_gradient, const float* camera_data, float
                 auto compute_position_grad = [&](int pixel) -> float
                 {
                     const float* pixel_data = &plot[pixel * (NDIM + 1)];
-                    float pixel_depth = pixel_data[NDIM];
+                    float pixel_depth = plot[pixel * (NDIM + 1) + NDIM];
                     const float* pixel_grad = &plot_grad[pixel * (NDIM + 1)];
                     float pixel_weight = plot_weights[pixel];
                     float d=0.0;
@@ -154,18 +155,19 @@ void __global__ backward(float* camera_gradient, const float* camera_data, float
 #if COMPUTE_STABILITY==1
                 auto compute_leave_grad = [&]() -> float
                 {
+                    if(!visible)return 1;
                     const float* pixel_data = &plot[pixel * (NDIM + 1)];
-                    float pixel_depth = pixel_data[NDIM];
+                    float pixel_depth = plot[pixel * (NDIM + 1) + NDIM];
                     const float* pixel_grad = &plot_grad[pixel * (NDIM + 1)];
                     float pixel_weight = plot_weights[pixel];
                     if (pixel_weight <= 0) {
                         //overwrites background
-                        assert(false);
+                        assert(false);//"Pixel reprojection landed in zero-weight spot"
                         return 0.5; //this should not happen;
                     } else{
                         float weight = test_depth(depth,pixel_depth);
                         if (weight<=0) {
-                            assert(false);
+                            assert(false);//"Pixel reprojection landed in occluded spot"
                             return 0.5; //this should also not happen;
                         } else if(weight<=pixel_weight){
                             return 0.5;//behind might be background or some other point. too hard to compute either way.
@@ -177,8 +179,8 @@ void __global__ backward(float* camera_gradient, const float* camera_data, float
                                 //NOTE: negative gradient means positive movement
                                 effect -= new_inv_weight * (this_point_data[3 + i] - pixel_weight * pixel_data[i]) * pixel_grad[i];
                             }
-                            if(effect<=0)return 1;
-                            return min(1.0f,1/(1+effect));
+                            //if(effect<=0)return 1;//leaving current pixel will probably have a positive impact
+                            return min(1.0f,1/(1+pow(2,effect)));
                         }
                     }
                 };
