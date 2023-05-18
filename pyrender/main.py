@@ -29,6 +29,7 @@ def make_workspace():
         t=trainer.trainer(ds,nn=torch.load(args.base_nn))
     print(f"saving workspace to {args.workspace}")
     t.save(args.workspace)
+    args.reorder_points='no'
     
 
 

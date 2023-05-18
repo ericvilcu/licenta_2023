@@ -1,10 +1,10 @@
-__hdfi__ float mag(float3 data){
-    return sqrt(data.x*data.x+data.y*data.y+data.z*data.z);
+__hdfi__ float magnitude3(float3 data){
+    return sqrtf((data.x*data.x)+(data.y*data.y)+(data.z*data.z));
 }
 
-__hdfi__ float3 norm(float3 data){
-    float n=mag(data);
-    return make_float3(data.x/n,data.y/n,data.z/n);
+__hdfi__ float3 normalised3(float3 data){
+    float mg=1/magnitude3(data);
+    return make_float3(data.x*mg,data.y*mg,data.z*mg);
 }
 
 __hdfi__ float3 abs3(float3 data){
@@ -15,8 +15,8 @@ __hdfi__ float3 cross(float3 a,float3 b){
     return make_float3((a.y*b.z-a.z*b.y),(a.z*b.x-a.x*b.z),(a.x*b.y-a.y*b.x));
 }
 
-__hdfi__ float dot(float3 a,float3 b){
-    return a.x*b.x+a.y+b.y+a.z*b.z;
+__hdfi__ float dot3(float3 a,float3 b){
+    return a.x*b.x + a.y*b.y + a.z*b.z;
 }
 
 __hdfi__ float clampf(float x, float mn, float mx){
@@ -89,7 +89,7 @@ constexpr int SUN_SKY_BLEND_IDX=SUN_SKY_RADIUS_IDX+1;
 //All of these I should be able to apply gradient descent to, as well.
 __hdfi__ void sample_environment(float* out,const float* environment_data,float3 direction){
     const float* data=environment_data;
-    direction=norm(direction);
+    direction=normalised3(direction);
     float y=direction.y;
     //TODO
     if(y<=0){
@@ -98,7 +98,7 @@ __hdfi__ void sample_environment(float* out,const float* environment_data,float3
         float c=pow(qd,data[GROUND_BLEND_IDX]);
         float ic=1-c;
         for(int i=0;i<=NDIM;++i)
-            out[i]=data[GROUND1_IDX+i]*c+data[GROUND2_IDX]*ic;
+            out[i]=data[GROUND1_IDX+i]*c+data[GROUND2_IDX+i]*ic;
     } else{
         //sampling sky
         float qd=y*y;
@@ -106,19 +106,17 @@ __hdfi__ void sample_environment(float* out,const float* environment_data,float3
         float ic=1-c;
         #pragma unroll
         for(int i=0;i<=NDIM;++i)
-            out[i]=data[SKY1_IDX+i]*c+data[SKY2_IDX]*ic;
-        //todo: backward sun + sun contribution
+            out[i]=data[SKY1_IDX+i]*c+data[SKY2_IDX+i]*ic;
 
         float sun_radius=environment_data[SUN_RADIUS_IDX];
         float sun_x=environment_data[SUN_POS_IDX+0];
         float sun_z=environment_data[SUN_POS_IDX+1];
         float sun_y=1;
-        float3 sun = norm(make_float3(sun_x,sun_y,sun_z));
+        float3 sun = normalised3(make_float3(sun_x,sun_y,sun_z));
 
-        float sun_distance= abs(dot(direction,sun));
-        //bad
-        float sun_factor=min(sun_radius-sun_distance,1.0f);
-
+        float sun_distance=1-dot3(direction,sun);
+        //kinda bad
+        float sun_factor=sun_radius-sun_distance;
 
         if(sun_factor>0)
             #pragma unroll
@@ -126,19 +124,19 @@ __hdfi__ void sample_environment(float* out,const float* environment_data,float3
                 out[i]+=environment_data[SUN_COLOR_IDX+i]*sun_factor;
         
         float contribution_radius=environment_data[SUN_SKY_RADIUS_IDX];
-        float sun_contribution=min(1-sun_distance/contribution_radius,1.0f);
+        float sun_contribution=1-sun_distance/contribution_radius;
 
         if(sun_contribution>0){
             float real_contribution=pow(sun_contribution,environment_data[SUN_SKY_BLEND_IDX]);
             #pragma unroll
             for(int i=0;i<=NDIM;++i)
-                out[i]+=environment_data[SUN_COLOR_IDX+i]*real_contribution;
+                out[i]+=environment_data[SUN_SKY_COLOR_IDX+i]*real_contribution;
         }
         
     }
 }
 __hdfi__ void backward_environment(const float* pixel_grad, const float* environment_data, float* environment_grad,float3 direction){
-    direction=norm(direction);
+    direction=normalised3(direction);
     
     float y=direction.y;
 
@@ -173,9 +171,9 @@ __hdfi__ void backward_environment(const float* pixel_grad, const float* environ
         float sun_x=environment_data[SUN_POS_IDX+0];
         float sun_z=environment_data[SUN_POS_IDX+1];
         float sun_y=1;
-        float3 sun = norm(make_float3(sun_x,sun_y,sun_z));
+        float3 sun = normalised3(make_float3(sun_x,sun_y,sun_z));
 
-        float sun_distance= abs(dot(direction,sun));
+        float sun_distance= 1-dot3(direction,sun);
         float sun_distance_grad=0;
         //bad
         float sun_factor=min(sun_radius-sun_distance,1.0f);
@@ -233,7 +231,7 @@ __hdfi__ void backward_environment(const float* pixel_grad, const float* environ
                 float projz=direction.z/direction.y;
                 
                 float2 direction_to_sun=make_float2(sun_x-projx,sun_z-projz);//direction to sun from our point
-                //?NOTE: for 100% corectness, it should be divided by the positive value of the cosine between the direction and the sun, but this has goodenough results
+                //?NOTE: for 100% corectness, it should be divided by the positive value of the sine between the direction and the sun, but this has goodenough results
 
                 atomicAdd(&environment_grad[SUN_POS_IDX+0],sun_distance_grad*direction_to_sun.x);
                 atomicAdd(&environment_grad[SUN_POS_IDX+1],sun_distance_grad*direction_to_sun.y);
@@ -283,7 +281,7 @@ __hdfi__ unsigned int pixel_from_cubemap_coords(uint3 data) {
 
 
 __hdfi__ void sample_environment(float* out,const float* environment_data,float3 direction){
-    direction=norm(direction);
+    direction=normalised3(direction);
     int idx_s = pixel_from_cubemap_coords(cubemap_coords(direction));
     #pragma unroll
     for(int i=0;i<=NDIM;++i)
@@ -292,7 +290,7 @@ __hdfi__ void sample_environment(float* out,const float* environment_data,float3
 
 
 __hdfi__ void backward_environment(const float* pixel_grad, const float* environment_data, float* environment_grad,float3 direction){
-    direction=norm(direction);
+    direction=normalised3(direction);
     int idx_s = pixel_from_cubemap_coords(cubemap_coords(direction));
     #pragma unroll
     for(int i=0;i<=NDIM;++i)

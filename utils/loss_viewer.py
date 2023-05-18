@@ -56,7 +56,7 @@ for hist_id,(hist,times,vhist,vtime) in enumerate(zip(hist_s,time_s,vhist_s,vtim
             if(last_idx!=-1):
                 start_time=run_hist[last_idx][1]
                 next_time=run_hist[idx][1]
-                while(v_idx<len(lv) and start_time<lv[v_idx]):
+                while(v_idx<len(lv) and start_time<lv[v_idx] and next_time>lv[v_idx]):
                     lv[v_idx]=lv[v_idx]-start_time+previous_time
                     v_idx+=1
                 previous_time=lv[v_idx-1]
@@ -65,7 +65,16 @@ for hist_id,(hist,times,vhist,vtime) in enumerate(zip(hist_s,time_s,vhist_s,vtim
         ll=[i/3600 for i in ll] 
         lv=[i/3600 for i in lv] 
     else:
-        ...#lv based on other batches?
+        lt:list[float]=[i for i in times]
+        idx=0
+        idv=0
+        while(idv<len(lv)):
+            if(idx<len(lt) and lt[idx]<lv[idv]):
+                idx+=1
+            else:
+                lv[idv]=idx-0.5
+                idv+=1
+        lt=None
     for train in [True,False]:
         for lt in hist[0]:
             if(lt in SKIPPED_LOSSES):

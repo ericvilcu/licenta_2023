@@ -178,30 +178,32 @@ def make_dummy_environment(custom_bin_path,type=3, extra_color_channels:int=0,re
                         f.write(struct.pack("fff"+("f"*extra_color_channels) + "f", *map(float,clr+([0]*extra_color_channels)+[depth])))
         elif(type==2):
             dnidm=4+extra_color_channels
-            ylw=[1,1,.7]
-            dclrs =[*clr]+[0.]*extra_color_channels+[1e6]
-            dclrs_h =[d*0.7 for d in dclrs  [ :-1]]+[1e6]
-            dclrs_g =[d*0.4 for d in dclrs  [ :-1]]+[1e6]
-            dclrs_hg=[d*0.7 for d in dclrs_g[ :-1]]+[1e6]
-            dclrs_s=ylw+ [0 for d in dclrs  [3:-1]]+[1e6]
-            dclrs_sc=[d*0.7 for d in dclrs_s[ :-1]]+[1e6]
+            snc=[2,2,-60]
+            ylw=[.4,.4,-.1]
+            blu=[.5,.5,1]
+            dclrs = [*blu]+[0.]*extra_color_channels +[1e6]
+            dclrs_h =[d*1.5   for d in dclrs  [ :-1]]+[1e6]
+            dclrs_g=[*clr]+[d for d in dclrs  [3:-1]]+[1e6]
+            dclrs_hg=[d*0.2   for d in dclrs_g[ :-1]]+[1e6]
+            dclrs_s=snc+ [0   for d in dclrs  [3:-1]]+[1e6]
+            dclrs_sc=ylw+ [0   for d in dclrs_s[3:-1]]+[1e6]
             f.write(struct.pack("q",13))#13 sub-tensors
             f.write(struct.pack("qqf",1,1,type))                  #TYPE
             
             f.write(struct.pack("qq"+"f"*dnidm,1,dnidm,*dclrs_g ))#GROUND
             f.write(struct.pack("qq"+"f"*dnidm,1,dnidm,*dclrs_hg))#GROUND2 (near horizon)
-            f.write(struct.pack("qq"+"f",1,1,1))                  #GROUND BLEND
+            f.write(struct.pack("qq"+"f",1,1,.2))                 #GROUND BLEND
             
-            f.write(struct.pack("qq"+"f"*dnidm,1,dnidm,*dclrs))   #SKY
+            f.write(struct.pack("qq"+"f"*dnidm,1,dnidm,*dclrs))   #SKY1
             f.write(struct.pack("qq"+"f"*dnidm,1,dnidm,*dclrs_h)) #SKY2    (near horizon)
-            f.write(struct.pack("qq"+"f",1,1,1))                  #SKY BLEND
+            f.write(struct.pack("qq"+"f",1,1,.2))                 #SKY BLEND
             
-            f.write(struct.pack("qq"+"f"*2,1,2,0,0))              #SUN POSITION
+            f.write(struct.pack("qq"+"f"*2,1,2,-3,3))             #SUN POSITION
             f.write(struct.pack("qq"+"f"*dnidm,1,dnidm,*dclrs_s)) #SUN COLOR
-            f.write(struct.pack("qq"+"f",1,1,.1))                 #SUN RADIUS
+            f.write(struct.pack("qq"+"f",1,1,.01))                #SUN RADIUS
             f.write(struct.pack("qq"+"f"*dnidm,1,dnidm,*dclrs_sc))#SUN SKY CONTRIBUTION COLOR
-            f.write(struct.pack("qq"+"f",1,1,.5))                 #SUN SKY CONTRIBUTION RADIUS
-            f.write(struct.pack("qq"+"f",1,1,1))                  #SUN SKY CONTRIBUTION BLEND
+            f.write(struct.pack("qq"+"f",1,1,.1))                 #SUN SKY CONTRIBUTION RADIUS
+            f.write(struct.pack("qq"+"f",1,1,10))                 #SUN SKY CONTRIBUTION BLEND
             
             pass
 """
@@ -216,8 +218,8 @@ if __name__ == "__main__":
     import time
     from sys import argv
     USE_TRANSPARENCY=True
-    #   0            1            2              3               4              5              6               7
-    #script.py "image_src" "sparse_folder" "dense_folder" "1/0 (points)" "1/0 (images)" "1/0(whole/patch)"" "output"
+    #   0            1            2              3               4              5              6               7        8 (optional)
+    #script.py "image_src" "sparse_folder" "dense_folder" "2/1/0 (points&)" "1/0 (images)" "1/0(whole/patch)"" "output" "env_type"
     IMG_LOCATION = argv[1]
     
     SPARSE_LOCATION=argv[2]
@@ -225,7 +227,8 @@ if __name__ == "__main__":
     CAM_TXT=f"{SPARSE_LOCATION}/cameras.txt"
     PNTS_TXT=f"{argv[3]}/points3D.txt"
     
-    DO_ENV=DO_PNTS=bool(int(argv[4]))
+    DO_ENV=DO_PNTS=int(argv[4])==1
+    DO_ENV=DO_ENV or int(argv[4])==2
     DO_IMGS=bool(int(argv[5]))
     CONVERT_WHOLE_IMAGE=bool(int(argv[6]))
     
@@ -233,6 +236,8 @@ if __name__ == "__main__":
     IMGS=f"{OUT_DATASET_LOCATION}/train_images"
     PNTS=f"{OUT_DATASET_LOCATION}/points.bin"
     ENVD=f"{OUT_DATASET_LOCATION}/environment.bin"
+    env_args={}
+    if(len(argv)>8):env_args["type"]=int(argv[8])
     
     rgbp=rgbi=None
     
@@ -251,14 +256,14 @@ if __name__ == "__main__":
     if(DO_ENV):
         est_frac = 1/2#what % of unreachable points exist, to choose a better sky color.
         if(rgbp == None):
-            if(rgbi == None): clr=(0,0,0)
+            if(rgbi == None): clr=(.5,.5,.5)
             else: clr=rgbi
         else:
             if(rgbi == None): clr=rgbp
             else: clr = list(map(lambda pi:(pi[1]-pi[0]*est_frac)/est_frac,zip(rgbp,rgbi)))
         print("colors:",rgbp,rgbi,clr)
-        make_dummy_environment(ENVD,clr=clr)
+        make_dummy_environment(ENVD,clr=clr,**env_args)
         print("Dummy environment created.")
     end=time.time()
     #Last time it took about 1.5s per frame with all options, which is slow, but that's python and this was really easy to write.
-    print(f"Done({'points' if DO_PNTS else ''}{'+' if DO_PNTS and DO_IMGS else ''}{f'images(whole={CONVERT_WHOLE_IMAGE})' if DO_IMGS else ''}) took {end-start}s")
+    print(f"Done({'points' if DO_PNTS else ''}{'+' if (DO_PNTS and DO_ENV) else ''}{'environment' if DO_ENV else ''}{'+' if (DO_PNTS or DO_ENV) and DO_IMGS else ''}{f'images(whole={CONVERT_WHOLE_IMAGE})' if DO_IMGS else ''}) took {end-start}s")

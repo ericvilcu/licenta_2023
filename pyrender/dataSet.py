@@ -68,7 +68,6 @@ class learnableData(torch.nn.Module):
                     environment[0]=gen_append(environment[0])
                     # 2. ground color (horizon)
                     environment[1]=gen_append(environment[1])
-                    # constexpr int GROUND_BLEND_IDX=GROUND2_IDX+NDIM+1;
                     # 3. ground horizon blending
                     # unmodified
                     # 4. sky color (close)
