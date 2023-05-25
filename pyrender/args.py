@@ -21,7 +21,7 @@ parser.add_argument('--use_gates',default='False',required=False,help="Specifies
 parser.add_argument('--extra_channels',default='0',required=False,help="Puts extra channels initially filled with gaussian noise onto points. (ignored if without --make_workspace)")
 parser.add_argument('--base_nn',default='',required=False,help="Where to load a pre-initialized nn from. (ignored if without --make_workspace, all other nn args may be ignored, amd --extra_channels should be specified to be this nn's value)")
 #parser.add_argument('--base_optim',default='',required=False,help="Where to load a pre-initialized optimizer from. (ignored if without --make_workspace, all other nn args may be ignored, amd --extra_channels should be specified to be this nn's value)")
-parser.add_argument('--depth_mode',default='normal',required=False,help="Can be set to 'invert' to feed 1/depth into the nn, 'normal' to feed depth, or 'remove' to ignore it.")
+parser.add_argument('--depth_mode',default='invert',required=False,help="Can be set to 'invert' to feed 1/depth into the nn, 'normal' to feed depth, or 'remove' to ignore it.")
 parser.add_argument('--expand_environment',default='norm',required=False,help="What to use to pad environment if extra dimensions are needed (norm,zeros,ones,-1)")
 parser.add_argument('--expand_points',default='norm',required=False,help="What to use to pad points if extra dimensions are needed (norm,zeros,ones,-1)")
 #training
@@ -44,14 +44,14 @@ parser.add_argument('--example_interval',default='-1',required=False,help="Speci
 parser.add_argument('--sample_prefix',default='',required=False,help="Specifies a string to put before file names.")
 parser.add_argument('--sample_folder',default='.vscode/',required=False,help="Specifies where to save samples")
 parser.add_argument('--samples_every',default='-1',required=False,help="Specifies the # of batches to save an image at. requires sample_folder")
-parser.add_argument('--full_samples_final',default=False,required=False,action="store_true",help="Specifies the # of batches to save an image at. requires sample_folder")
+parser.add_argument('--full_samples_final',default=False,required=False,action="store_true",help="Specifies to save samples from all views upon closing (may take a while). requires sample_folder")
 parser.add_argument('--screencap_folder',default='.vscode/',required=False,help="Specifies where to save any screencap taken with 'p'")
 parser.add_argument('--time_render_speed',default=False,action='store_true',help="Specifies to time render time for all samples")
 #timeout/shutdown
 #TODO: do something with lambdas to make timeout simpler.
 parser.add_argument('--timeout',required=False,default='-1.0',help="Specifies how much time the program should automatically close in.")
-parser.add_argument('--max_batches',required=False,default='-1',help="Specifies many batches the nn should train for before the application closes itself. Note: may sometimes train slightly more than the specified amount.")
-parser.add_argument('--max_total_batches',required=False,default='-1',help="Specifies many batches the nn should train for (including batches from previous runs) before the application closes itself. Note: may sometimes train slightly more than the specified amount.")
+parser.add_argument('--max_batches',required=False,default='-1',help="Specifies how many batches the nn should train for before the application closes itself.")
+parser.add_argument('--max_total_batches',required=False,default='-1',help="Specifies how many batches the nn should train for (including batches from previous runs) before the application closes itself.")
 parser.add_argument('--stagnation',required=False,default=('-1','-1'),nargs=2,help=r"Specifies the number of batches to look back on and average, as well as the % of change that is considered insignificant. For example, '--stagnation 10 0.01' means, naming the last 10 batches' average c and the average of the 10 batches before l, to stop when c*(1+0.01)>l")
 
 raw_args=parser.parse_args()

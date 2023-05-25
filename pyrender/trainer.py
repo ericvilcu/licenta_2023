@@ -225,15 +225,17 @@ class MainModule_2(torch.nn.Module):
 
 class MainModule_3(torch.nn.Module):
     #NOTE: implementation is lazy
-    def __init__(self, subplots=4, ndim=5, empty=False, **unused_args) -> None:
+    def __init__(self, subplots=4, ndim=5, empty=False, connectivity_mode=0, **unused_args) -> None:
         if(args.depth_mode!='invert'):
             print("WARN: this type of nn works poorly without \"--depth_mode invert\"  as arguments.")
         if(args.depth_mode=='remove'):
             raise Exception("This type of nn requires depth.")
         self.layers=subplots
         super().__init__()
-        if(ndim!=7):
-            raise Exception("ndim must be equal to 7 (4 extra channels) (rgb, x+/x-/y+/y-, depth/weight)")
+        self.dir_map={0:[3,4,5,6],1:[3,3,4,4],2:[3,3,3,3]}[connectivity_mode]
+        if(ndim!=3+len(set(self.dir_map))):
+            ex=len(set(self.dir_map))
+            raise Exception(f"ndim must be equal to {3+ex} ({ex} extra channels) (rgb,{'x+/x-/y+/y-' if ex==4 else('x/y' if ex==2 else 'overall')} connectivity, depth/weight) for connectivity mode {connectivity_mode}")
         self.kp=torch.nn.Parameter(torch.tensor(1.).cuda())
         self.pp=torch.nn.Parameter(torch.tensor(1./12.).cuda())
         self.dp=torch.nn.Parameter(torch.tensor(1./4.).cuda())
@@ -280,31 +282,32 @@ class MainModule_3(torch.nn.Module):
         s4=self.dp
         for (I1,J1,R1),(I2,J2,R2) in [
             # 2 main crosses. X and +
-            ((0,0,((4,s2),(6,s2))),(2,2,((5,s2),(7,s2)))),#\
-            ((0,2,((4,s2),(7,s2))),(2,0,((5,s2),(6,s2)))),#/
-            ((1,0,((4, 1),      )),(1,2,((5, 1),      ))),#|
-            ((0,1,((6, 1),      )),(2,1,((7, 1),      ))),#-
+            ((0,0,((0,s2),(2,s2))),(2,2,((1,s2),(3,s2)))),#\
+            ((0,2,((0,s2),(3,s2))),(2,0,((1,s2),(2,s2)))),#/
+            ((1,0,((0, 1),      )),(1,2,((1, 1),      ))),#|
+            ((0,1,((2, 1),      )),(2,1,((3, 1),      ))),#-
             
             #Then theres also 8 knight moves. The way they're written is a bit of a mess...
-            ((1,0,((5,d2),(6,d1))),(0,2,((4,d1),(7,d1)))),#A 1 /
-            ((1,0,((5,d2),(7,d1))),(2,2,((4,d1),(6,d1)))),#A 2 \
+            ((1,0,((1,d2),(2,d1))),(0,2,((0,d1),(3,d1)))),#A 1 /
+            ((1,0,((1,d2),(3,d1))),(2,2,((0,d1),(2,d1)))),#A 2 \
                 
-            ((0,0,((5,d2),(7,d1))),(1,2,((4,d2),(6,d1)))),#V 1 \
-            ((2,0,((5,d2),(6,d1))),(1,2,((4,d2),(7,d1)))),#V 2 /
+            ((0,0,((1,d2),(3,d1))),(1,2,((0,d2),(2,d1)))),#V 1 \
+            ((2,0,((1,d2),(2,d1))),(1,2,((0,d2),(3,d1)))),#V 2 /
                 
-            ((2,0,((5,d1),(6,d2))),(0,1,((4,d1),(7,d2)))),#< 1 /
-            ((0,1,((5,d1),(7,d2))),(2,2,((4,d1),(6,d2)))),#< 2 \
+            ((2,0,((1,d1),(2,d2))),(0,1,((0,d1),(3,d2)))),#< 1 /
+            ((0,1,((1,d1),(3,d2))),(2,2,((0,d1),(2,d2)))),#< 2 \
                 
-            ((0,0,((5,d1),(7,d2))),(2,1,((4,d1),(6,d2)))),#> 1 \
-            ((2,1,((5,d1),(6,d2))),(0,2,((4,d1),(7,d2)))),#> 2 /
+            ((0,0,((1,d1),(3,d2))),(2,1,((0,d1),(2,d2)))),#> 1 \
+            ((2,1,((1,d1),(2,d2))),(0,2,((0,d1),(3,d2)))),#> 2 /
             
             #We can also consider the little diamond.
-            ((1,0,((4,s4),(6,s4))),(2,1,((5,s4),(7,s4)))),#\ left
-            ((1,0,((4,s4),(7,s4))),(1,0,((5,s4),(6,s4)))),#/ left
-            ((0,1,((4,s4),(6,s4))),(1,2,((5,s4),(7,s4)))),#\ right
-            ((1,2,((4,s4),(7,s4))),(2,1,((5,s4),(6,s4)))),#/ right
+            ((1,0,((0,s4),(2,s4))),(2,1,((1,s4),(3,s4)))),#\ left
+            ((1,0,((0,s4),(3,s4))),(1,0,((1,s4),(2,s4)))),#/ left
+            ((0,1,((0,s4),(2,s4))),(1,2,((1,s4),(3,s4)))),#\ right
+            ((1,2,((0,s4),(3,s4))),(2,1,((1,s4),(2,s4)))),#/ right
         ]:
-            
+            R1=[(self.dir_map[i],2) for i,w in R1]
+            R2=[(self.dir_map[i],2) for i,w in R2]
             # w1=self.weight(x0y0)#xy_mat[I1-1][J1-1])#counted from 1 on accident. I blame octave.
             # w2=self.weight(x1y1)#xy_mat[I2-1][J2-1])
             # c1=self.colors(x0y0)#xy_mat[I1-1][J1-1])
@@ -713,9 +716,9 @@ class trainer():
             result = self.size_safe_forward_nograd(cam_type=cam_type,camera=camera,scene=scene_id)
             r.upload_tensor(result_view,result)
     
-    def start_trainer_thread(self):
+    def start_trainer_thread(self,cond):
         assert('tt' not in dir(self))
-        self.tt = trainer_thread(self)
+        self.tt = trainer_thread(self,cond)
         self.tt.start()
         
     def stop_trainer_thread(self):
@@ -793,10 +796,11 @@ if(args.stagnation_batches!=-1):
         return stagnated
 import kernelItf
 class trainer_thread(Thread):
-    def __init__(self,parent) -> None:
+    def __init__(self,parent,close_condition) -> None:
         super().__init__()
         self.should_stop_training=False
         self.parent:trainer=parent
+        self.close_condition=close_condition
     def run(self):
         self.parent.nn.train()
         self.parent.data.train()
@@ -804,6 +808,8 @@ class trainer_thread(Thread):
         last_save=last_report=s=time.time()
         unprinted_validation=False
         while(not self.should_stop_training):
+            if(self.close_condition()):
+                break
             if(args.samples_every>0 and (TOTAL_BATCHES_THIS_RUN%args.samples_every==0)):
                 self.parent.save_one_()
             loss_this_batch=self.parent.train_one_batch()

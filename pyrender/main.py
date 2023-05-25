@@ -83,7 +83,7 @@ should_close=stack_fun(should_close)
 kernelItf.initialize()
 
 if(args.train):
-    t.start_trainer_thread()
+    t.start_trainer_thread(should_close)
 try:
     if(args.live_render):
         samples_enabled=True
