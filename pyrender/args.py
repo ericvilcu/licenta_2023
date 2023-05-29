@@ -24,6 +24,7 @@ parser.add_argument('--base_nn',default='',required=False,help="Where to load a 
 parser.add_argument('--depth_mode',default='invert',required=False,help="Can be set to 'invert' to feed 1/depth into the nn, 'normal' to feed depth, or 'remove' to ignore it.")
 parser.add_argument('--expand_environment',default='norm',required=False,help="What to use to pad environment if extra dimensions are needed (norm,zeros,ones,-1)")
 parser.add_argument('--expand_points',default='norm',required=False,help="What to use to pad points if extra dimensions are needed (norm,zeros,ones,-1)")
+parser.add_argument('--blend_mode',default='0',help="Specifies which blending mode should be used (see plot.cu BLEND_MODE macro)")
 #training
 parser.add_argument('--notrain',action='store_true',default=False,required=False,help="Specifies to not train the neural network")
 parser.add_argument('--batch_size',default='',required=False,help="Overrides default batch size(default is the dataset size)")
@@ -34,7 +35,6 @@ parser.add_argument('--no_point_refinement',default=False,required=False,action=
 parser.add_argument('--structural_refinement',default=False,required=False,action='store_true',help="Specifies to use structural refinement")
 parser.add_argument('--compute_stability',default=False,required=False,action='store_true',help="Specifies whether to use stability in structural refinement")
 parser.add_argument('--loss_type',default='',help="Specifies which loss backward should be called for.")
-parser.add_argument('--blend_mode',default='0',help="Specifies which blending mode should be used (see plot.cu BLEND_MODE macro)")
 #visualization
 parser.add_argument('--norender',action='store_true',default=False,required=False,help="Specifies to not use any window at all. note: currently breaks if you ctrl+c the app to stop, so make sure to specify timeout or max_batches")
 parser.add_argument('-W','--width',default='100',required=False,help="Specifies window width")

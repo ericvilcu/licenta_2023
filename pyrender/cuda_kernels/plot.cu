@@ -19,7 +19,7 @@
 
 #if BLEND_MODE==0//standard
 float __hdfi__ test_depth(float my_depth, float min_depth){
-    if(min_depth * (1 + 0.001) < my_depth) return -1;
+    if(min_depth * (1 + 0.01) < my_depth) return -1;
     return 1;
 }
 #elif BLEND_MODE==1//cutoff
@@ -33,7 +33,7 @@ float __hdfi__ test_depth(float my_depth, float min_depth){
 }
 #elif BLEND_MODE==3//standatd curved
 float __hdfi__ test_depth(float my_depth, float min_depth){
-    return max(1,my_depth/min_depth - (1.0-0.001));
+    return max(1,my_depth/min_depth - (1.0-0.01));
 }
 #endif
 
