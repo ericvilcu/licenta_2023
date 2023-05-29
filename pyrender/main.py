@@ -15,12 +15,13 @@ import kernelItf
 import cameraController
 import sdl2
 import os
+import sys
 
 def make_workspace():
     print(f"loading dataset from scenes={set(args.scenes)}")
     
     if(os.path.exists(args.workspace)):
-        print("WARN: WORKSPACE MAY BE OVERRIDDEN; THIS MAY CAUSE ERRORS. YOU CAN DELETE IT MANUALLY TO FIX MOST OF THEM.")
+        print("WARN: WORKSPACE MAY BE OVERRIDDEN; THIS MAY CAUSE ERRORS. YOU CAN DELETE IT MANUALLY TO FIX MOST OF THEM.",file=sys.stderr)
     
     ds = DataSet(scenes=args.scenes,force_ndim=args.ndim)
     if(args.base_nn==''):
@@ -36,8 +37,12 @@ def make_workspace():
 if(args.make_workspace):
     make_workspace()
 elif(not os.path.exists(args.workspace)):
-    print("WARNING: WORKSPACE DOES NOT EXIST AND WILL BE CREATED")
-    make_workspace()
+    if(len(args.scenes)>0):
+        print("WARNING: WORKSPACE DOES NOT EXIST AND WILL BE CREATED AUTOMATICALLY AS IF --make_workspace WAS SPECIFIED.",file=sys.stderr)
+        make_workspace()
+    else:
+        print("ERROR: WORKSPACE DOES NOT EXIST.",file=sys.stderr)
+        exit(-1)
 
 print("loading workspace...")
 t=trainer.trainer.load(args.workspace,args=args.nn_args)
@@ -87,7 +92,7 @@ if(args.train):
 try:
     if(args.live_render):
         samples_enabled=True
-        while(not should_close()):#(not args.timeout or e-s<args.timeout_s) and (args.max_batches<0 or trainer.TOTAL_BATCHES_THIS_RUN<=args.max_batches)):
+        while(not should_close()):
             if(r.is_window_minimized()):
                 r.sleep_until_not_minimized(60)
                 ev=r.update()

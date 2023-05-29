@@ -12,12 +12,30 @@
 #ifndef CAMERA_GRAD
 #define CAMERA_GRAD 0
 #endif
+#ifndef BLEND_MODE
+#define BLEND_MODE 0
+#endif
 #include <cuda_runtime.h>
 
+#if BLEND_MODE==0//standard
 float __hdfi__ test_depth(float my_depth, float min_depth){
     if(min_depth * (1 + 0.001) < my_depth) return -1;
     return 1;
 }
+#elif BLEND_MODE==1//cutoff
+float __hdfi__ test_depth(float my_depth, float min_depth){
+    if(min_depth < my_depth) return -1;
+    return 1;
+}
+#elif BLEND_MODE==2//always_visible
+float __hdfi__ test_depth(float my_depth, float min_depth){
+    return pow(max(1,my_depth/min_depth),2);
+}
+#elif BLEND_MODE==3//standatd curved
+float __hdfi__ test_depth(float my_depth, float min_depth){
+    return max(1,my_depth/min_depth - (1.0-0.001));
+}
+#endif
 
 void __global__ determine_depth(float* output, const float* points, int num_points, const float* camera_raw_data){
     Camera camera{camera_raw_data};

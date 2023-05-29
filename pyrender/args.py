@@ -34,7 +34,7 @@ parser.add_argument('--no_point_refinement',default=False,required=False,action=
 parser.add_argument('--structural_refinement',default=False,required=False,action='store_true',help="Specifies to use structural refinement")
 parser.add_argument('--compute_stability',default=False,required=False,action='store_true',help="Specifies whether to use stability in structural refinement")
 parser.add_argument('--loss_type',default='',help="Specifies which loss backward should be called for.")
-
+parser.add_argument('--blend_mode',default='0',help="Specifies which blending mode should be used (see plot.cu BLEND_MODE macro)")
 #visualization
 parser.add_argument('--norender',action='store_true',default=False,required=False,help="Specifies to not use any window at all. note: currently breaks if you ctrl+c the app to stop, so make sure to specify timeout or max_batches")
 parser.add_argument('-W','--width',default='100',required=False,help="Specifies window width")
@@ -89,6 +89,7 @@ expand_environment=raw_args.expand_environment
 expand_points=raw_args.expand_points
 STRUCTURAL_REFINEMENT=raw_args.structural_refinement
 compute_stability=1 if raw_args.compute_stability else 0
+blend_mode=raw_args.blend_mode
 
 time_render_speed=raw_args.time_render_speed
 

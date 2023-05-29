@@ -8,6 +8,7 @@ import math
 from torchmetrics.image.psnr import PeakSignalNoiseRatio
 from torchmetrics.image.ssim import StructuralSimilarityIndexMeasure
 from torchmetrics.image.lpip import LearnedPerceptualImagePatchSimilarity
+from torchvision.utils import save_image
 import os
 import args
 import time
@@ -557,7 +558,6 @@ class trainer():
     def size_safe_forward_nograd(self,cam_type:int=None,camera:list[float]=None,scene:int=None):
         try:
             with torch.no_grad():
-                #TODO: image split if necessary
                 lum=camera[4]
                 
                 W,H=camera[2],camera[3]
@@ -730,7 +730,6 @@ class trainer():
     def save_one_(self):
         self.save_one(int(0.33*len(self.data.trainImages)))
     def save_one(self,id,title=None):
-        from torchvision.utils import save_image
         scene_id,cam_type,camera,*unused=self.data.trainImages.__getitem__(id)
         c=self.size_safe_forward_nograd(cam_type,camera,scene_id)
         if(title==None):
