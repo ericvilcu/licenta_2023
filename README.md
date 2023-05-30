@@ -23,4 +23,4 @@ your command should look something like
 ###### A better system for conversion will be made eventually.
 # Generate a workspace with that scene.
 
-Described in [pyrender/readme.md](/pyrender/readme.md).
+Described in [pyrender/README.md](/pyrender/README.md).
