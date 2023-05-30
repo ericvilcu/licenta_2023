@@ -35,6 +35,10 @@ parser.add_argument('--no_point_refinement',default=False,required=False,action=
 parser.add_argument('--structural_refinement',default=False,required=False,action='store_true',help="Specifies to use structural refinement")
 parser.add_argument('--compute_stability',default=False,required=False,action='store_true',help="Specifies whether to use stability in structural refinement")
 parser.add_argument('--loss_type',default='',help="Specifies which loss backward should be called for.")
+
+parser.add_argument('--LR_NN',default='1e-2',required=False,help="Specifies the loss to train the neural network with")
+parser.add_argument('--LR_DS',default='1e-3',required=False,help="Specifies the loss to train the neural point & environment colors and positions with")
+parser.add_argument('--LR_CAM',default='1e-5',required=False,help="Specifies the loss to change the camera data with")
 #visualization
 parser.add_argument('--norender',action='store_true',default=False,required=False,help="Specifies to not use any window at all. note: currently breaks if you ctrl+c the app to stop, so make sure to specify timeout or max_batches")
 parser.add_argument('-W','--width',default='100',required=False,help="Specifies window width")
@@ -84,6 +88,10 @@ max_batches      =int(raw_args.max_batches      )
 max_total_batches=int(raw_args.max_total_batches)
 stagnation_batches,stagnation_p=int(raw_args.stagnation[0]),float(raw_args.stagnation[1])
 reorder_points=raw_args.reorder_points
+
+LR_NN=float(raw_args.LR_NN)#1e-2#TODO: arguments for these 3; for now i'll just set them manually
+LR_DS=float(raw_args.LR_DS)#1e-3
+LR_CAM=float(raw_args.LR_CAM)#1e-5
 
 expand_environment=raw_args.expand_environment
 expand_points=raw_args.expand_points

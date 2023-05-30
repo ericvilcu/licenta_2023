@@ -19,9 +19,9 @@ lpips_module=LearnedPerceptualImagePatchSimilarity(net_type='alex').cuda()
 vgg_module=LearnedPerceptualImagePatchSimilarity(net_type='vgg').cuda()
 squeeze_module=LearnedPerceptualImagePatchSimilarity(net_type='squeeze').cuda()
 used_optim=torch.optim.Adam
-LR_NN=1e-2#TODO: arguments for these 3; for now i'll just set them manually
-LR_DS=1e-3
-LR_CAM=1e-5
+LR_NN=args.LR_NN
+LR_DS=args.LR_DS
+LR_CAM=args.LR_CAM
 TOTAL_BATCHES_THIS_RUN=0
 
 def make_ch_first(x:torch.Tensor):

@@ -2,10 +2,10 @@
 
 # Use colmap to extract points from a sequence of images.
 
-## See how to do so [here](https://colmap.github.io/), and save the sparse and dense reconstructions as text.
+### See how to do so [here](https://colmap.github.io/). Notably, you must save the sparse and dense reconstructions as text in separate folders for the next step.
 
 # Generate a scene from a COLMAP
-After converting something to a scene using COLMAP, saving both the sparse and dense point clouds as text, run convert_colmap.py from .//utils with the following arguments:
+After converting a sequence to 3D points using COLMAP, saving both the sparse and dense point clouds as text, run convert_colmap.py from ./utils with the following arguments:
 
 1 -> image folder
 2 -> dense folder
@@ -20,6 +20,7 @@ your command should look something like
 
 ```python utils/convert_colmap.py dataset_kitty_03/images dataset_kitty_03/sparse/txt dataset_kitty_03/dense/txt 1 1 1 /scene_kitti_03 1 dataset_kitty_03/masks```
 
+###### A better system for conversion will be made eventually.
 # Generate a workspace with that scene.
 
 Described in [pyrender/readme.md](/pyrender/readme.md).
