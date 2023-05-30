@@ -3,6 +3,7 @@ from scipy.spatial.transform import Rotation
 import numpy as np
 import struct
 from itertools import chain
+from PIL import Image
 
 def clamp(x,mn,mx):
     return min(max(x,mn),mx)
@@ -22,7 +23,7 @@ def all_lines_iter(file:str):
 def all_lines(file:str):
     with open(file) as f:
         return f.readlines()
-def patchImages(cameras_txt,images_txt,custom_bin_image_folder,overwrite=False,img_location=None,end=".bin",autoReorder=False):
+def patchImages(cameras_txt,images_txt,custom_bin_image_folder,overwrite=False,img_location=None,mask_location=None,end=".bin",autoReorder=False):
     """
         returns an average color to use in defining the environment.
     """
@@ -103,6 +104,11 @@ def patchImages(cameras_txt,images_txt,custom_bin_image_folder,overwrite=False,i
                     elif(t==1):
                         f.write(struct.pack(6*"f",ppx,ppy,fx,fy,k1,k2))
         else:
+            mask_raw=None
+            if(mask_location!=None):
+                image_mask_path=os.path.join(mask_location,img_name)
+                if(os.path.exists(image_mask_path)):
+                    mask_raw=Image.open(image_mask_path)
             with open(path_to_patch,"wb") as f:
                 f.write(struct.pack("i",t))
                 f.write(struct.pack("IIII",int(w0),int(h0),int(w),int(h)))
@@ -113,14 +119,14 @@ def patchImages(cameras_txt,images_txt,custom_bin_image_folder,overwrite=False,i
                     f.write(struct.pack(6*"f",ppx,ppy,fx,fy,k1,k2))
                 n=h
                 m=w
-                from PIL import Image
                 img_raw = Image.open(os.path.join(img_location,img_name))
                 #"We have .bmp at home"
                 for j in range(int(n)):
                     for i in range(int(m)):
+                        MASK=[] if mask_raw==None else [mask_raw.getpixel((i,j))]
                         pix=img_raw.getpixel((i,j))
-                        R,G,B=pix
-                        A=255
+                        R,G,B,*A=pix
+                        A=[*MASK,*A,255][0]#optional.or_else(optional.or_else(255)).
                         r+=(R/255);g+=(G/255);b+=(B/255);ncol+=1
                         f.write(struct.pack("B"*4,R,G,B,A))
                 if(done&0xf==0xf):
@@ -218,8 +224,8 @@ if __name__ == "__main__":
     import time
     from sys import argv
     USE_TRANSPARENCY=True
-    #   0            1            2              3               4              5              6               7        8 (optional)
-    #script.py "image_src" "sparse_folder" "dense_folder" "2/1/0 (points&)" "1/0 (images)" "1/0(whole/patch)"" "output" "env_type"
+    #   0            1            2              3               4              5              6               7        8 (optional) 9(optional)
+    #script.py "image_src" "sparse_folder" "dense_folder" "2/1/0 (points&)" "1/0 (images)" "1/0(whole/patch)"" "output" "env_type"  "mask_path"
     IMG_LOCATION = argv[1]
     
     SPARSE_LOCATION=argv[2]
@@ -238,6 +244,7 @@ if __name__ == "__main__":
     ENVD=f"{OUT_DATASET_LOCATION}/environment.bin"
     env_args={}
     if(len(argv)>8):env_args["type"]=int(argv[8])
+    MASK_PATH=None if len(argv)<=9 else argv[9]
     
     rgbp=rgbi=None
     
@@ -251,7 +258,7 @@ if __name__ == "__main__":
         rgbp=patch_points(PNTS_TXT,PNTS)
         print("Points transferred.")
     if(DO_IMGS):
-        rgbi=patchImages(CAM_TXT,IMG_TXT,IMGS,overwrite=CONVERT_WHOLE_IMAGE,img_location=IMG_LOCATION)
+        rgbi=patchImages(CAM_TXT,IMG_TXT,IMGS,overwrite=CONVERT_WHOLE_IMAGE,img_location=IMG_LOCATION,mask_location=MASK_PATH)
         print("Images converted.")
     if(DO_ENV):
         est_frac = 1/2#what % of unreachable points exist, to choose a better sky color.
@@ -266,4 +273,4 @@ if __name__ == "__main__":
         print("Dummy environment created.")
     end=time.time()
     #Last time it took about 1.5s per frame with all options, which is slow, but that's python and this was really easy to write.
-    print(f"Done({'points' if DO_PNTS else ''}{'+' if (DO_PNTS and DO_ENV) else ''}{'environment' if DO_ENV else ''}{'+' if (DO_PNTS or DO_ENV) and DO_IMGS else ''}{f'images(whole={CONVERT_WHOLE_IMAGE})' if DO_IMGS else ''}) took {end-start}s")
+    print(f"Done({'points' if DO_PNTS else ''}{'+' if (DO_PNTS and DO_ENV) else ''}{'environment' if DO_ENV else ''}{'+' if (DO_PNTS or DO_ENV) and DO_IMGS else ''}{f'images(whole={CONVERT_WHOLE_IMAGE},mask={MASK_PATH!=None})' if DO_IMGS else ''}) took {end-start}s")
