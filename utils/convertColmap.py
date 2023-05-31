@@ -82,7 +82,7 @@ if(CONVERT_IMAGES or PATCH_IMAGES):
         crash(f"{CAM_TXT} does not exist.")
     if(not os.path.exists(IMG_TXT)):
         crash(f"{IMG_TXT} does not exist.")
-    rgbi=patchImages(CAM_TXT,IMG_TXT,IMGS,overwrite=not PATCH_IMAGES,img_location=IMG_LOCATION,mask_location=MASK_PATH)
+    rgbi=patchImages(CAM_TXT,IMG_TXT,IMGS,overwrite=not PATCH_IMAGES,img_location=IMG_LOCATION,mask_location=MASK_PATH,autoReorder=True)
     print("Images converted.")
 if(CONVERT_ENVIRONMENT):
     est_frac = 1/3#what % of unreachable points exist, to choose a better sky color.

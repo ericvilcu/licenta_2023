@@ -89,7 +89,7 @@ def patchImages(cameras_txt,images_txt,custom_bin_image_folder,overwrite=False,i
             fy=fx;k2=0.
         else:raise f"{type} is an unknown camera type."
         if(autoReorder):
-            path_to_patch=os.path.join(custom_bin_image_folder,str(IDX)+end)
+            path_to_patch=os.path.join(custom_bin_image_folder,f"{IDX:06d}"+end)
             IDX+=1
         else: path_to_patch=os.path.join(custom_bin_image_folder,no_extension(img_name)+end)
         lum=1.0
