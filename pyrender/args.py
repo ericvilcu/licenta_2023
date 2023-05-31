@@ -39,6 +39,7 @@ parser.add_argument('--loss_type',default='',help="Specifies which loss backward
 parser.add_argument('--LR_NN',default='1e-2',required=False,help="Specifies the loss to train the neural network with")
 parser.add_argument('--LR_DS',default='1e-3',required=False,help="Specifies the loss to train the neural point & environment colors and positions with")
 parser.add_argument('--LR_CAM',default='1e-5',required=False,help="Specifies the loss to change the camera data with")
+#parser.add_argument('--no_mask',default=False,action='store_true',required=False,help="Specifies to ignore masks")
 #visualization
 parser.add_argument('--norender',action='store_true',default=False,required=False,help="Specifies to not use any window at all. note: currently breaks if you ctrl+c the app to stop, so make sure to specify timeout or max_batches")
 parser.add_argument('-W','--width',default='100',required=False,help="Specifies window width")
