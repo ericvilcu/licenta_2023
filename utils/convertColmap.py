@@ -4,7 +4,7 @@ from convertColmapOLD import *
 def crash(msg):
     print(msg,file=stderr)
     exit(-1)
-if(len(argv)<1):
+if(len(argv)<=1):
     print("some paths will be required.")
     IMG_LOCATION=input("image folder location:")
     SPARSE_LOCATION=input("Location of sparse point cloud .txt (incl. cameras):")
@@ -23,16 +23,16 @@ else:
     import argparse
     parser=argparse.ArgumentParser(prog="COLMAP converter")
     
-    parser.add_argument("--img_location",required=True,help="Specify a folder full of jpgs or pngs that have been used in the reconstruction",nargs=1)
-    parser.add_argument("--sparse_location",required=True,help="Specify the folder where you exported the sparse model as text",nargs=1)
-    parser.add_argument("--dense_location",required=True,help="Specify the folder where you exported the dense model as text",nargs=1)
-    parser.add_argument("--skip_points",required=False,default=False,action='store_true',help="add to skip point conversion (not recommended)",nargs=0)
-    parser.add_argument("--skip_environment",required=False,default=False,action='store_true',help="add to skip dummy environment creation (not recommended)",nargs=0)
-    parser.add_argument("--skip_images",required=False,default=False,action='store_true',help="add to skip image conversion (not recommended)",nargs=0)
-    parser.add_argument("--patch_images",required=False,default=False,action='store_true',help="add to patch image cameras instead of converting them whole(not recommended)",nargs=0)
-    parser.add_argument("--environment_type",required=False,default=0,help="Specify the environment type (default=0)",type=int,nargs=1)
-    parser.add_argument("--mask",required=False,default=None,help="Specify a folder full of jpgs or pngs that have been used as masks in the reconstruction (optional)",nargs=1)
-    parser.add_argument("--output",required=True,help="Specify where to put the converted scenes",nargs=1)
+    parser.add_argument("--img_location",required=True,help="Specify a folder full of jpgs or pngs that have been used in the reconstruction")
+    parser.add_argument("--sparse_location",required=True,help="Specify the folder where you exported the sparse model as text")
+    parser.add_argument("--dense_location",required=True,help="Specify the folder where you exported the dense model as text")
+    parser.add_argument("--skip_points",required=False,default=False,action='store_true',help="add to skip point conversion (not recommended)")
+    parser.add_argument("--skip_environment",required=False,default=False,action='store_true',help="add to skip dummy environment creation (not recommended)")
+    parser.add_argument("--skip_images",required=False,default=False,action='store_true',help="add to skip image conversion (not recommended)")
+    parser.add_argument("--patch_images",required=False,default=False,action='store_true',help="add to patch image cameras instead of converting them whole(not recommended)")
+    parser.add_argument("--environment_type",required=False,default=0,help="Specify the environment type (default=0)",type=int)
+    parser.add_argument("--mask",required=False,default=None,help="Specify a folder full of jpgs or pngs that have been used as masks in the reconstruction (optional)")
+    parser.add_argument("--output",required=True,help="Specify where to put the converted scenes")
     
     raw_args=parser.parse_args()
     IMG_LOCATION=raw_args.img_location

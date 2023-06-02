@@ -104,11 +104,11 @@ class CameraController():
                     self.use_neural=not self.use_neural
                 elif(keysym.sym==sdl2.SDLK_f and not is_pressed):
                     self.flip_x=not self.flip_x
-                elif(keysym.sym==sdl2.SDLK_KP_PLUS and not is_pressed):
+                elif((keysym.sym==sdl2.SDLK_KP_PLUS or keysym.sym==sdl2.SDLK_PERIOD) and not is_pressed):
                     self.shown_dim+=1
-                elif(keysym.sym==sdl2.SDLK_KP_MINUS and not is_pressed):
+                elif((keysym.sym==sdl2.SDLK_KP_MINUS or keysym.sym==sdl2.SDLK_COMMA) and not is_pressed):
                     self.shown_dim-=1
-                elif(keysym.sym==sdl2.SDLK_KP_MULTIPLY and not is_pressed):
+                elif((keysym.sym==sdl2.SDLK_KP_MULTIPLY or keysym.sym==sdl2.SDLK_SLASH) and not is_pressed):
                     self.shown_ndim=4-self.shown_ndim
                 elif(keysym.sym==sdl2.SDLK_F5 and not is_pressed):
                     self.samples_enabled=not self.samples_enabled
