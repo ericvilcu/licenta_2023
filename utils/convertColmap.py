@@ -14,7 +14,7 @@ if(len(argv)<=1):
     CONVERT_IMAGES=True
     PATCH_IMAGES=False
     
-    ENVIRONMENT_TYPE=input("Environment type[-1,(0),1,2,3]:")
+    ENVIRONMENT_TYPE=input("Environment type[-1,(0),1,2]:")
     if(ENVIRONMENT_TYPE==''):ENVIRONMENT_TYPE='0'
     else:ENVIRONMENT_TYPE=int(ENVIRONMENT_TYPE)
     MASK_PATH=input("MASK PATH(leave blank for None):")
@@ -48,13 +48,13 @@ else:
     OUTPUT_FOLDER=raw_args.output
 
 if(MASK_PATH==''):MASK_PATH=None
-assert ENVIRONMENT_TYPE in (-1,0,1,2,3), "invalid environment"
+assert ENVIRONMENT_TYPE in (-1,0,1,2), "invalid environment"
 
 
 
 IMG_TXT=f"{SPARSE_LOCATION}/images.txt"
 CAM_TXT=f"{SPARSE_LOCATION}/cameras.txt"
-PNTS_TXT=f"{argv[3]}/points3D.txt"
+PNTS_TXT=f"{DENSE_LOCATION}/points3D.txt"
 
 
 
@@ -95,61 +95,5 @@ if(CONVERT_ENVIRONMENT):
         else: clr = list(map(lambda pi:(pi[1]-pi[0]*est_frac)/est_frac,zip(rgbp,rgbi)))
     
     print("colors:",rgbp,rgbi,clr)
-    make_dummy_environment(ENVD,clr=clr,**env_args)
+    make_dummy_environment(ENVD,clr=clr,type=ENVIRONMENT_TYPE+1)
     print("Dummy environment created.")
-
-
-
-exit()
-## DO NOT execute below. it is here for reference.
-USE_TRANSPARENCY=True
-#   0            1            2              3               4              5              6               7        8 (optional) 9(optional)
-#script.py "image_src" "sparse_folder" "dense_folder" "2/1/0 (points&)" "1/0 (images)" "1/0(whole/patch)"" "output" "env_type"  "mask_path"
-IMG_LOCATION = argv[1]
-
-SPARSE_LOCATION=argv[2]
-IMG_TXT=f"{SPARSE_LOCATION}/images.txt"
-CAM_TXT=f"{SPARSE_LOCATION}/cameras.txt"
-PNTS_TXT=f"{argv[3]}/points3D.txt"
-
-DO_ENV=DO_PNTS=int(argv[4])==1
-DO_ENV=DO_ENV or int(argv[4])==2
-DO_IMGS=bool(int(argv[5]))
-CONVERT_WHOLE_IMAGE=bool(int(argv[6]))
-
-OUT_DATASET_LOCATION= argv[7]
-IMGS=f"{OUT_DATASET_LOCATION}/train_images"
-PNTS=f"{OUT_DATASET_LOCATION}/points.bin"
-ENVD=f"{OUT_DATASET_LOCATION}/environment.bin"
-env_args={}
-if(len(argv)>8):env_args["type"]=int(argv[8])
-MASK_PATH=None if len(argv)<=9 else argv[9]
-
-rgbp=rgbi=None
-
-start=time.time()
-if(CONVERT_WHOLE_IMAGE):
-    if(not os.path.exists(OUT_DATASET_LOCATION)):
-        os.mkdir(OUT_DATASET_LOCATION)
-    if(not os.path.exists(IMGS)):
-        os.mkdir(IMGS)
-if(DO_PNTS):
-    rgbp=patch_points(PNTS_TXT,PNTS)
-    print("Points transferred.")
-if(DO_IMGS):
-    rgbi=patchImages(CAM_TXT,IMG_TXT,IMGS,overwrite=CONVERT_WHOLE_IMAGE,img_location=IMG_LOCATION,mask_location=MASK_PATH)
-    print("Images converted.")
-if(DO_ENV):
-    est_frac = 1/2#what % of unreachable points exist, to choose a better sky color.
-    if(rgbp == None):
-        if(rgbi == None): clr=(.5,.5,.5)
-        else: clr=rgbi
-    else:
-        if(rgbi == None): clr=rgbp
-        else: clr = list(map(lambda pi:(pi[1]-pi[0]*est_frac)/est_frac,zip(rgbp,rgbi)))
-    print("colors:",rgbp,rgbi,clr)
-    make_dummy_environment(ENVD,clr=clr,**env_args)
-    print("Dummy environment created.")
-end=time.time()
-#Last time it took about 1.5s per frame with all options, which is slow, but that's python and this was really easy to write.
-print(f"Done({'points' if DO_PNTS else ''}{'+' if (DO_PNTS and DO_ENV) else ''}{'environment' if DO_ENV else ''}{'+' if (DO_PNTS or DO_ENV) and DO_IMGS else ''}{f'images(whole={CONVERT_WHOLE_IMAGE},mask={MASK_PATH!=None})' if DO_IMGS else ''}) took {end-start}s")
