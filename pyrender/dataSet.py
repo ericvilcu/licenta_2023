@@ -235,8 +235,12 @@ class TrainImages(Dataset):
                     #NOTE: ppx,ppy,fx,fy
                     ppx,ppy,fx,fy=read_bytes('f'*4,f)
                     extra=[ppx,ppy,fx,fy]
-                    
-                else:raise Exception("Unknown camera type")
+                elif(cam_type == 1):
+                    #NOTE: ppx,ppy,fx,fy,k1,k2
+                    ppx,ppy,fx,fy,k1,k2=read_bytes('f'*6,f)
+                    extra=[ppx,ppy,fx,fy,k1,k2]
+                else:
+                    raise Exception("Unknown camera type")
                 cam=torch.tensor(list(map(float,[w0,h0,w,h,lum,*rot,*trans,*extra])))
                 image_data=bytearray(f.read())
                 target=(torch.frombuffer(image_data,dtype=torch.uint8).cuda().reshape((h,w,4))).to(dtype=torch.float32)/255

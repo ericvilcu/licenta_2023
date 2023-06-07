@@ -12,7 +12,7 @@ from torchvision.utils import save_image
 import os
 import args
 import time
-
+USE_DATA_LOADERS=True
 psnr_module=PeakSignalNoiseRatio().cuda()
 ssim_module=StructuralSimilarityIndexMeasure().cuda()
 lpips_module=LearnedPerceptualImagePatchSimilarity(net_type='alex').cuda()
@@ -226,17 +226,21 @@ class MainModule_2(torch.nn.Module):
 
 class MainModule_3(torch.nn.Module):
     #NOTE: implementation is lazy
-    def __init__(self, subplots=4, ndim=5, empty=False, connectivity_mode=0, **unused_args) -> None:
+    def __init__(self, subplots=4, ndim=5, empty=False, connectivity_channels=4, **unused_args) -> None:
         if(args.depth_mode!='invert'):
             print("WARN: this type of nn works poorly without \"--depth_mode invert\"  as arguments.")
         if(args.depth_mode=='remove'):
             raise Exception("This type of nn requires depth.")
         self.layers=subplots
         super().__init__()
-        self.dir_map={0:[3,4,5,6],1:[3,3,4,4],2:[3,3,3,3]}[connectivity_mode]
+        MODES={4:[3,4,5,6],2:[3,3,4,4],1:[3,3,3,3]}
+        if(connectivity_channels not in MODES):
+            raise Exception(f"valid connectivity_channels must be from list {list(MODES)} and equal to extra_channels , but value {connectivity_channels} was given with extra_channels {ndim-3}.")
+            
+        self.dir_map=MODES[connectivity_channels]
         if(ndim!=3+len(set(self.dir_map))):
             ex=len(set(self.dir_map))
-            raise Exception(f"ndim must be equal to {3+ex} ({ex} extra channels) (rgb,{'x+/x-/y+/y-' if ex==4 else('x/y' if ex==2 else 'overall')} connectivity, depth/weight) for connectivity mode {connectivity_mode}")
+            raise Exception(f"ndim must be equal to {3+ex} ({ex} extra channels) (rgb,{'x+/x-/y+/y-' if ex==4 else('x/y' if ex==2 else 'overall')} connectivity, depth/weight) for connectivity mode {connectivity_channels}")
         self.kp=torch.nn.Parameter(torch.tensor(1.).cuda())
         self.pp=torch.nn.Parameter(torch.tensor(1./12.).cuda())
         self.dp=torch.nn.Parameter(torch.tensor(1./4.).cuda())
@@ -459,14 +463,14 @@ class trainer():
             {'params':data.parameters(),'lr':LR_DS,'name':'data'},{'params':self.nn.parameters(),'name':'nn'}
         ],lr=LR_NN) if optim==None else optim
         self.data=data
-        
-        self.train_dataloader = DataLoader(dataSet.SubDataSet(self.data.trainImages,10,2,False), batch_size=1, shuffle=True)
+        dl=DataLoader if USE_DATA_LOADERS else lambda x,**a:x
+        self.train_dataloader = dl(dataSet.SubDataSet(self.data.trainImages,10,2,False), batch_size=1, shuffle=True)
         self.train_dataloader_iter = spin_iter(self.train_dataloader)
         
-        self.validation_dataloader  = DataLoader(dataSet.SubDataSet(self.data.trainImages,10,2,True), batch_size=1, shuffle=False)
+        self.validation_dataloader  = dl(dataSet.SubDataSet(self.data.trainImages,10,2,True), batch_size=1, shuffle=False)
         self.validation_iterator = spin_iter(self.validation_dataloader)
         
-        self.test_dataloader  = DataLoader(self.data.trainImages, batch_size=1, shuffle=False)
+        self.test_dataloader  = dl(self.data.trainImages, batch_size=1, shuffle=False)
         self.test_dataloader_iter = spin_iter(self.test_dataloader)
         
         self.MAX_PIXELS_PER_PLOT_NOGRAD=self.MAX_PIXELS_PER_PLOT=int(1e9)
@@ -555,24 +559,36 @@ class trainer():
                 diff={}
         return total_diff
 
-    def size_safe_forward_nograd(self,cam_type:int=None,camera:list[float]=None,scene:int=None):
+    def forward_camera_nograd_unsafe(self,cam_type:int=None,camera:list[float]=None,scene:int=None,WHL=[]):
+        lum=camera[4]
+        
+        W,H=camera[2],camera[3]
+        if(W*H>self.MAX_PIXELS_PER_PLOT_NOGRAD):
+            cams,W,H = best_split_camera(camera,self.MAX_PIXELS_PER_PLOT_NOGRAD,expected_pad=self.pad)
+        else:
+            cams=[[camera]]
+        WHL[0]=int(W);WHL[1]=int(H)
+        plots=[]
+        for cam_col in cams:
+            cl=[]
+            for cam in cam_col: 
+                plt=unpad_tensor(self.nn.forward(self.draw_subplots(scene,cam_type,pad_camera(cam,self.pad),self.nn.required_subplots())).detach(),self.pad)
+                torch.cuda.empty_cache()
+                cl.append(plt)
+            plots.append(cl)
+        plots=put_back_together(plots,unpad=0)
+        if(lum<=0):
+            lum=1/plots.mean()
+        return plots*lum
+
+    def size_safe_forward_nograd(self,cam_type:int,camera:list[float]=None,scene:int=None,recc=0):
         try:
+            WHL=[int(camera[2]),int(camera[3])]
             with torch.no_grad():
-                lum=camera[4]
-                
-                W,H=camera[2],camera[3]
-                if(W*H>self.MAX_PIXELS_PER_PLOT_NOGRAD):
-                    cams,W,H = best_split_camera(camera,self.MAX_PIXELS_PER_PLOT_NOGRAD,expected_pad=self.pad)
-                else:
-                    cams=[[camera]]
-                plots=[[self.nn.forward(self.draw_subplots(scene,cam_type,pad_camera(cam,self.pad),self.nn.required_subplots()))
-                        for cam in cam_col] for cam_col in cams]
-                plots=put_back_together(plots,self.pad)
-                if(lum<=0):
-                    lum=1/plots.mean()
-                return plots*lum
+                return self.forward_camera_nograd_unsafe(cam_type,camera,scene,WHL=WHL)
         except Exception as e:
-            if(type(e)==torch.cuda.OutOfMemoryError):
+            W,H=WHL
+            if(type(e)==torch.cuda.OutOfMemoryError or str(e)=='CUDA error: CUBLAS_STATUS_ALLOC_FAILED when calling `cublasCreate(handle)`'):
                 print("Memory error:",e,f"occurred, decreasing self.MAX_PIXELS_PER_PLOT_NOGRAD to {W*H-1}; current batch has been skipped")
                 self.MAX_PIXELS_PER_PLOT_NOGRAD=int(W*H-1)
             elif(str(e)=="Unable to find a valid cuDNN algorithm to run convolution"):
@@ -580,8 +596,10 @@ class trainer():
                 self.MAX_PIXELS_PER_PLOT_NOGRAD=int(W*H-1)
             else:raise e
             if(self.MAX_PIXELS_PER_PLOT_NOGRAD<4*self.pad*self.pad):raise Exception("MAX_PIXELS_PER_PLOT_NOGRAD decreased too much. Your neural network might be too big to fit in your GPU memory")
-            lum=None;cams=None;plots=None;W=H=None
-            return self.size_safe_forward_nograd(cam_type,camera,scene)
+            torch.cuda.empty_cache()
+            #For some reason it keeps some tensors in memory until the data from the dataloader is unloaded. because of this, I just put some error messages and skipped certain attempts
+            if(recc>1):raise Exception("MAX_PIXELS_PER_PLOT_NOGRAD decreased a lot in one attempt")
+            return self.size_safe_forward_nograd(cam_type,camera,scene,recc=recc+1)
         
     
     def train_one_batch(self):
@@ -620,13 +638,13 @@ class trainer():
                     self.report_losses[name]=diff[name]
             self.report_batches+=1
         except Exception as e:
-            if(type(e)==torch.cuda.OutOfMemoryError):
+            if(type(e)==torch.cuda.OutOfMemoryError or str(e)=='CUDA error: CUBLAS_STATUS_ALLOC_FAILED when calling `cublasCreate(handle)`'):
                 print("Memory error:",e,f"occurred, decreasing self.MAX_PIXELS_PER_PLOT to {W*H-1}; current batch has been skipped")
                 self.MAX_PIXELS_PER_PLOT=int(W*H-1)
             elif(str(e)=="Unable to find a valid cuDNN algorithm to run convolution"):
                 print("Weird cuDNN error:",e,f"occurred, assuming it's because of memory and decreasing self.MAX_PIXELS_PER_PLOT to {W*H-1}; current batch has been skipped")
                 self.MAX_PIXELS_PER_PLOT=int(W*H-1)
-            else:raise e
+            else:raise Exception(e)
             if(self.MAX_PIXELS_PER_PLOT<4*self.pad*self.pad):raise Exception("MAX_PIXELS_PER_PLOT decreased too much. Your neural network might be too big to fit in your GPU memory")
         self.optim.zero_grad()
         return get_loss(diff)
@@ -691,7 +709,7 @@ class trainer():
             metaData.histValidation.append(diff)
             self.optim.zero_grad()
         except Exception as e:
-            if(type(e)==torch.cuda.OutOfMemoryError):
+            if(type(e)==torch.cuda.OutOfMemoryError or str(e)=='CUDA error: CUBLAS_STATUS_ALLOC_FAILED when calling `cublasCreate(handle)`'):
                 print("Memory error:",e,f"occurred, decreasing self.MAX_PIXELS_PER_PLOT to {W*H-1}; current batch has been skipped")
                 self.MAX_PIXELS_PER_PLOT=int(W*H-1)
             elif(str(e)=="Unable to find a valid cuDNN algorithm to run convolution"):
@@ -703,18 +721,23 @@ class trainer():
         
     def display_results_to_renderer(self,r:GLRenderer.Renderer,points_view,result_view,target_view):
         with torch.no_grad():
-            scene_id,cam_type,camera,target,*unused=self.test_dataloader_iter.next()
-            target=torch.squeeze(target,0)
-            cam_type=int(cam_type)
-            camera=camera[0] if camera.size(0)==1 else camera
-            #TODO: ensure plot does not crash due to image size.
-            r.upload_tensor(target_view,target)
-            target=None
-            plots=self.draw_subplots(scene_id,cam_type,camera,1)
-            r.upload_tensor(points_view,plots[0])
-            plots=None
-            result = self.size_safe_forward_nograd(cam_type=cam_type,camera=camera,scene=scene_id)
-            r.upload_tensor(result_view,result)
+            try:
+                scene_id,cam_type,camera,target,*unused=self.test_dataloader_iter.next()
+                target=torch.squeeze(target,0)
+                cam_type=int(cam_type)
+                camera=camera[0] if camera.size(0)==1 else camera
+                #TODO: ensure plot does not crash due to image size.
+                r.upload_tensor(target_view,target)
+                target=None
+                plots=self.draw_subplots(scene_id,cam_type,camera,1)
+                r.upload_tensor(points_view,plots[0])
+                plots=None
+                result = self.size_safe_forward_nograd(cam_type=cam_type,camera=camera,scene=scene_id)
+                r.upload_tensor(result_view,result)
+            except Exception as e:
+                #We may run out of memory somewhere in the middle due to other threads
+                print(f"Exception while fetching display data:{e}")
+                return
     
     def start_trainer_thread(self,cond):
         assert('tt' not in dir(self))

@@ -1,7 +1,7 @@
 #include <cuda_runtime.h>
 //No reason to include __host__
 #define __hdfi__ __device__ __forceinline__
-struct CAMERA_DATA_TYPE;
+//struct CAMERA_DATA_TYPE;
 
 //This is a better abstraction than a 4x4 matrix, and its functions are simpler and more explicit.
 struct Transform{
@@ -76,18 +76,18 @@ struct ScreenCoordsWithDepth {
 
 struct PartialCameraDataTemplate
 {
-	float w0,h0,w,h;
+	float w0,h0,w,h,lum;
 	Transform transform = Transform();
 	float near_clip = 0, far_clip = 1e20f;
 
-	__hdfi__ PartialCameraDataTemplate() { w0=h=h=w=0; };
+	__hdfi__ PartialCameraDataTemplate() { w0=h0=h=w=0; };
 };
 
 
 #if CAM_TYPE==0 && !defined(CAMERA_DATA_TYPE)
 #define CAMERA_DATA_TYPE PinholeCameraData
 struct PinholeCameraData:PartialCameraDataTemplate{
-	float ppx,ppy,fx,fy,lum;
+	float ppx,ppy,fx,fy;
 	//These should be implemented for any camera type, or else the inline thing in kernels may break.
 	__hdfi__ ScreenCoordsWithDepth mapToScreenCoordsFromWorldCoords(float3 world_coords) const {
 		if (world_coords.z < near_clip || world_coords.z > far_clip) return ScreenCoordsWithDepth::invalid();
@@ -122,13 +122,14 @@ struct PinholeCameraData:PartialCameraDataTemplate{
 
 #if CAM_TYPE==1 && !defined(CAMERA_DATA_TYPE)
 #define CAMERA_DATA_TYPE RadialCameraData
+#include <cfloat>
 //Radial projection camera data.
 //Implementations more or less copied from: https://github.com/colmap/colmap/blob/master/src/base/camera_models.h
-struct PartialRadialCameraData :PartialCameraDataTemplate<PartialRadialCameraData> {
+struct RadialCameraData :PartialCameraDataTemplate {
 	float fx, fy, ppx, ppy, k1, k2;
 
 
-    __hdfi__ PartialRadialCameraData(const float* data){
+    __hdfi__ RadialCameraData(const float* data){
         w0 =data[0];
         h0 =data[1];
         w  =data[2];
@@ -143,21 +144,14 @@ struct PartialRadialCameraData :PartialCameraDataTemplate<PartialRadialCameraDat
         k2 =data[5+9+3+5];
     }
 
-
-	//These should be implemented for any camera type, or else the inline thing in kernels may break.
-	__hdfi__ float4 mapToWorldCoords(float4 coords) const {
-		return transform * coords;
-	};
-
-
 	
-	__hdfi__ interactiveRadialUndistortion(float* u, float* v){
+	__hdfi__ void newtonRadialUndistortion(float* u, float* v) const {
 		//newton's method for function f(r)=r+r^3*k1+r^5*k2 -R, where r is the initial value and R is the distorted value
 		const size_t max_iter = 20;//100;
 		float r0=sqrt(*u**u+*v**v);//only in c++
 		const float R=r0;
-		const float expected_error = R*1e-12f;
-		for (size_t i = 0; i < 20; ++i) {
+		const float expected_error = R*1e-8f;
+		for (size_t i = 0; i < max_iter; ++i) {
 			float r2=r0*r0;
 			float r4=r2*r2;
 			float slope=(1+3*r2*k1+5*r4*k2);
@@ -174,8 +168,8 @@ struct PartialRadialCameraData :PartialCameraDataTemplate<PartialRadialCameraDat
 
 
 	//2 functions implemented based on COLMAP https://github.com/colmap/colmap/blob/master/src/base/camera_models.h
-	__hdfi__ void inverse(float4 J) const {
-		d = (J.x*J.w)-(J.z*J.y);
+	__hdfi__ float4 inverse(float4 J) const {//inverts 2x2 matrix stored as float4.
+		float d = (J.x*J.w)-(J.z*J.y);
 		return make_float4(J.w/d,J.z/d,J.y/d,J.z/d);
 	}
 	//this is basically COLMAP's undistortion function which is made to work on any camera model. It can be simplified a lot probably. 
@@ -195,12 +189,13 @@ struct PartialRadialCameraData :PartialCameraDataTemplate<PartialRadialCameraDat
 		float2 dx_0f = make_float2(0.0f, 0.0f);
 		float2 dx_1b = make_float2(0.0f, 0.0f);
 		float2 dx_1f = make_float2(0.0f, 0.0f);
+		float eps = FLT_EPSILON;//std::numeric_limits<float>::epsilon();
 
 		for (size_t i = 0; i < kNumIterations; ++i) {
-			const float step0 = std::max(std::numeric_limits<float>::epsilon(),
-				std::abs(kRelStepSize * x.x));
-			const float step1 = std::max(std::numeric_limits<float>::epsilon(),
-				std::abs(kRelStepSize * x.y));
+			const float step0 = max(eps,
+				abs(kRelStepSize * x.x));
+			const float step1 = max(eps,
+				abs(kRelStepSize * x.y));
 			distortion(x.x, x.y, &dx.x, &dx.y);
 			distortion(x.x - step0, x.y, &dx_0b.x, &dx_0b.y);
 			distortion(x.x + step0, x.y, &dx_0f.x, &dx_0f.y);
@@ -255,11 +250,11 @@ struct PartialRadialCameraData :PartialCameraDataTemplate<PartialRadialCameraDat
 		direction.x = -(uv.x - ppx) / fx;
 		direction.y = -(uv.y - ppy) / fy;
 
-		interactiveRadialUndistortion(&direction.x, &direction.y);
+		newtonRadialUndistortion((float*)&direction.x,(float*)&direction.y);
 
 		return transform.unapply_rotation(direction);
 	}
-	PartialRadialCameraData() { fx = fy = k1 = k2 = ppx = ppy = near_clip = far_clip = 0; };
+	RadialCameraData() { fx = fy = k1 = k2 = ppx = ppy = near_clip = far_clip = 0; };
 };
 #endif
 
@@ -268,7 +263,7 @@ struct PartialRadialCameraData :PartialCameraDataTemplate<PartialRadialCameraDat
 
 
 
-struct Camera:CAMERA_DATA_TYPE{
+struct Camera:public CAMERA_DATA_TYPE{
 	__hdfi__ Camera(const float* data):CAMERA_DATA_TYPE{data} {}
 	__hdfi__ void implementations_exist() {
 		//makes sure these are all required functions exist, yet should be optimized away.

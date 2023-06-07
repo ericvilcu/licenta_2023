@@ -127,10 +127,13 @@ try:
                 #interactive view.
                 
                 cam=controller.get_camera()
-                if(controller.use_neural):
-                    view = t.size_safe_forward_nograd(controller.camera_type(),cam,0)
-                else:
-                    view = controller.only_shown_dimensions(*t.draw_subplots(0,controller.camera_type(),cam,1))
+                try:
+                    if(controller.use_neural):
+                        view = t.size_safe_forward_nograd(controller.camera_type(),cam,0)
+                    else:
+                        view = controller.only_shown_dimensions(*t.draw_subplots(0,controller.camera_type(),cam,1))
+                except Exception as ex:
+                    print(f"Error {ex} in main view render")
                 r.upload_tensor('interactive',view)
                 ev=r.update()
                 

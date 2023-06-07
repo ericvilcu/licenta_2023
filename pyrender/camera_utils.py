@@ -11,8 +11,19 @@ def downsize_pinhole(cam_data:list[float])->list[float]:
     h0=int(h0/2);h=int(h/2)
     return torch.tensor([w0,h0,w,h,lum,r1,r2,r3,r4,r5,r6,r7,r8,r9,t1,t2,t3,fx,fy,ppx,ppy])
 
+def downsize_radial(cam_data:list[float])->list[float]:
+    w0,h0,w,h,lum,r1,r2,r3,r4,r5,r6,r7,r8,r9,t1,t2,t3,fx,fy,ppx,ppy,k1,k2= \
+        cam_data
+    fx=fx/2;fy=fy/2
+    ppx=ppx/2;ppy=ppy/2
+    w0=int(w0/2);w=int(w/2)
+    h0=int(h0/2);h=int(h/2)
+    k1=k1/4;k2=k2/16#because distortion is calculated as d=d*(1+(|d|^2*k1+|d|^4*k2))
+    return torch.tensor([w0,h0,w,h,lum,r1,r2,r3,r4,r5,r6,r7,r8,r9,t1,t2,t3,fx,fy,ppx,ppy,k1,k2])
+
 downsize_functions={
-    0:downsize_pinhole
+    0:downsize_pinhole,
+    1:downsize_radial
 }
 
 def downsize_camera(cam_type:int,cam_data:list[float]):
@@ -64,7 +75,7 @@ def tensor_subsection(tsr:torch.Tensor,cam:list[float]):
     
     return tsr[int(h0):int(h0)+int(h),int(w0):int(w0)+int(w)]
 def unpad_tensor(tsr:torch.Tensor,padding:int):
-    return tsr[padding:-padding,padding:-padding]
+    return tsr[padding:-padding,padding:-padding] if padding>0 else tsr
 def put_back_together(tensors,unpad:int=0):
     tsr=torch.zeros((0,),device=tensors[0][0].device)
     for row in tensors:

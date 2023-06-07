@@ -19,6 +19,8 @@ parser.add_argument('--nn_type',default='1',required=False,help="Specifies what 
 parser.add_argument('--subplots',default='4',required=False,help="Overrides default number of subplots (default is 4) (ignored if without --make_workspace)")
 parser.add_argument('--use_gates',default='False',required=False,help="Specifies wether to use gates or not (ignored if without --make_workspace)")
 parser.add_argument('--extra_channels',default='0',required=False,help="Puts extra channels initially filled with gaussian noise onto points. (ignored if without --make_workspace)")
+parser.add_argument('--connectivity_channels',default='',required=False,help="Specifies how many connectivity channels should be used. should be in [1,2,4] and equal to extra channels if used (ignored if without --make_workspace)")
+
 parser.add_argument('--base_nn',default='',required=False,help="Where to load a pre-initialized nn from. (ignored if without --make_workspace, all other nn args may be ignored, amd --extra_channels should be specified to be this nn's value)")
 #parser.add_argument('--base_optim',default='',required=False,help="Where to load a pre-initialized optimizer from. (ignored if without --make_workspace, all other nn args may be ignored, amd --extra_channels should be specified to be this nn's value)")
 parser.add_argument('--depth_mode',default='invert',required=False,help="Can be set to 'invert' to feed 1/depth into the nn, 'normal' to feed depth, or 'remove' to ignore it.")
@@ -34,7 +36,7 @@ parser.add_argument('--no_nn_refinement',default=False,required=False,action='st
 parser.add_argument('--no_point_refinement',default=False,required=False,action='store_true',help="Specifies to not improve point colors/positions")
 parser.add_argument('--structural_refinement',default=False,required=False,action='store_true',help="Specifies to use structural refinement")
 parser.add_argument('--compute_stability',default=False,required=False,action='store_true',help="Specifies whether to use stability in structural refinement")
-parser.add_argument('--loss_type',default='',help="Specifies which loss backward should be called for.")
+parser.add_argument('--loss_type',default='l1',help="Specifies which loss backward should be called for.")
 
 parser.add_argument('--LR_NN',default='1e-2',required=False,help="Specifies the loss to train the neural network with")
 parser.add_argument('--LR_DS',default='1e-3',required=False,help="Specifies the loss to train the neural point & environment colors and positions with")
@@ -106,6 +108,10 @@ nn_args={"ndim":ndim}
 
 if(raw_args.batch_size!=""):
     nn_args["batch_size"]=int(raw_args.batch_size)
+if(raw_args.connectivity_channels!=""):
+    nn_args["connectivity_channels"]=int(raw_args.connectivity_channels)
+else:
+    nn_args["connectivity_channels"]=int(raw_args.extra_channels)
 if(raw_args.padding!=""):
     nn_args["start_padding"]=int(raw_args.padding)
 if(raw_args.subplots!=""):
