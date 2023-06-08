@@ -1,6 +1,6 @@
 import args
 import torch
-
+from time import time
 from struct import pack, unpack
 from itertools import chain
 import random
@@ -17,6 +17,7 @@ def reorder(data:torch.Tensor):
     else:
         raise Exception(f"point reordering type {args.refine_points} unknown")
     
+    start_time=time()
     print(f"STARTING sort of {len(data)} points.")
 
     original_device=data.device
@@ -38,7 +39,10 @@ def reorder(data:torch.Tensor):
         #cpu_data[i][3+2]=b
     print("ENDING sort.")
     global idx;idx=0
-    return torch.stack(cpu_data).to(original_device)
+    rez=torch.stack(cpu_data).to(original_device)
+    end_time=time()
+    print(f"Time taken:{end_time-start_time:.2f}s")
+    return rez
 def morton_code_SLOW(data:torch.Tensor):
     #VERY SLOW.
     #also think about normalization

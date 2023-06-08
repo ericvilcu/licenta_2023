@@ -19,6 +19,12 @@ __hdfi__ float dot3(float3 a,float3 b){
     return a.x*b.x + a.y*b.y + a.z*b.z;
 }
 
+
+__hdfi__ float clampfNaN(float x, float mn=-1, float mx=1){
+    if(x!=x)return (mn+mx)/2;
+    return min(max(x,mn),mx);
+}
+
 __hdfi__ float clampf(float x, float mn, float mx){
     return min(max(x,mn),mx);
 }
@@ -171,7 +177,9 @@ __hdfi__ void backward_environment(const float* pixel_grad, const float* environ
         float sun_x=environment_data[SUN_POS_IDX+0];
         float sun_z=environment_data[SUN_POS_IDX+1];
         float sun_y=1;
-        float3 sun = normalised3(make_float3(sun_x,sun_y,sun_z));
+        float3 sun = make_float3(sun_x,sun_y,sun_z);
+        float sun_mag=magnitude3(sun);
+        sun=make_float3(sun.x/sun_mag,sun.y/sun_mag,sun.z/sun_mag);
 
         float sun_distance= 1-dot3(direction,sun);
         float sun_distance_grad=0;
@@ -226,16 +234,21 @@ __hdfi__ void backward_environment(const float* pixel_grad, const float* environ
 
 
         if(sun_distance_grad!=0){
-            if(direction.y>0.01){
-                float projx=direction.x/direction.y;
-                float projz=direction.z/direction.y;
-                
-                float2 direction_to_sun=make_float2(sun_x-projx,sun_z-projz);//direction to sun from our point
-                //?NOTE: for 100% corectness, it should be divided by the positive value of the sine between the direction and the sun, but this has goodenough results
+            //todo? condition avoiding strage division by zero bs?
+            //Note:
+            //float sun_distance= 1-dot3(direction,sun);
+            float CONTRIB_X=direction.x*sun.x;
+            //float CONTRIB_Y=direction.y*sun.y; y is always 1 so it is excluded here.
+            float CONTRIB_Z=direction.z*sun.z;
+            
+            float CONTRIB_X_grad=sun_distance_grad*CONTRIB_X/sun_distance;
+            float CONTRIB_Z_grad=sun_distance_grad*CONTRIB_Z/sun_distance;
+            
+            float sun_x_grad=CONTRIB_X_grad/direction.x * sun_mag;
+            float sun_z_grad=CONTRIB_Z_grad/direction.z * sun_mag;
 
-                atomicAdd(&environment_grad[SUN_POS_IDX+0],sun_distance_grad*direction_to_sun.x);
-                atomicAdd(&environment_grad[SUN_POS_IDX+1],sun_distance_grad*direction_to_sun.y);
-            }
+            atomicAdd(&environment_grad[SUN_POS_IDX+0],sun_x_grad);
+            atomicAdd(&environment_grad[SUN_POS_IDX+1],sun_y_grad);
         }
     }
 }

@@ -841,7 +841,7 @@ class trainer_thread(Thread):
                 #print(f"Validation loss:{validation_loss_this_batch}")
             e=time.time()
             if(e-last_report>args.report_freq or self.should_stop_training and self.parent.report_batches>0):
-                l={loss:float(self.parent.report_losses[loss]/self.parent.report_batches) for loss in self.parent.report_losses}
+                l={loss:f"{float(self.parent.report_losses[loss]/self.parent.report_batches):.5f}" for loss in self.parent.report_losses}
                 print(f"Report: average loss is {l} in {self.parent.report_batches} batches")
                 if(unprinted_validation):
                     print(f"Last validation:{validation_loss_this_batch}")
