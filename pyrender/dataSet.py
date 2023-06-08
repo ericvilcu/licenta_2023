@@ -90,7 +90,7 @@ class learnableData(torch.nn.Module):
                     environment=environment[0]
                     es=list(environment.shape)
                     es[-1]=extra
-                    append_environment=torch.randn(*es,device='cuda')
+                    append_environment=ee(*es,device='cuda')
                     environment: torch.Tensor=torch.cat((environment[:,:,:,:-1],append_environment,environment[:,:,:,-1:]),-1)#NOTE: depth is always the last one in line
                     append_environment=None
                     environment=[environment.contiguous()]
