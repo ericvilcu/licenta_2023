@@ -8,7 +8,7 @@ This software can be used to run comparisons with various
 2. make sure the cl.exe is in path.
 
 # TO USE
-1. Use the utility scripts to create a scene from a COLMAP reconstruction. (process described in [../README.md](/../README.md))
+1. Use the utility scripts to create a scene from a COLMAP reconstruction. (process described in [../README.md](../README.md))
 2. run main.py with '--make_workspace' and '-s C://Path/To/Your/Scene/'. Most other parameters are for the most part optional, but use '--batch_size=1' to train faster stochastically.
 3. always specify a '--workspace C://Path/To/Your/Workspace/' to specify what workspace to use. Note that 'C://Path/To/Your' would need to exist and be a folder for this example, otherwise workspace creation would fail.
 
@@ -20,4 +20,4 @@ This software can be used to run comparisons with various
 --notrain to not train during this run
 
 
-### If you want to see ALL arguments, either read [args.py](/./args.py) or look at the argument part of the [documentation](https://www.overleaf.com/read/xfswjshhwvcz).
+### If you want to see ALL arguments, either read [args.py](./args.py) or look at the argument part of the [documentation](https://www.overleaf.com/read/xfswjshhwvcz).
