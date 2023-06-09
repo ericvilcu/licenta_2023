@@ -85,7 +85,7 @@ nn_refinement = not raw_args.no_nn_refinement
 camera_refinement = not raw_args.no_camera_refinement
 
 report_freq=float(raw_args.report_freq)
-validation_interval=raw_args.validation_interval
+validation_interval=int(raw_args.validation_interval)
 autosave_s=float(raw_args.autosaves)
 timeout=(float(raw_args.timeout)>0)
 timeout_s=float(raw_args.timeout)
