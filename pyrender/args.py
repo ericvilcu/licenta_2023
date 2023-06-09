@@ -8,6 +8,7 @@ parser.add_argument('--workspace',required=True,default="",help="Specifies the w
 #i don't know where to put this
 parser.add_argument('--autosaves',required=False,default="600",help="Specifies what interval to autosave the nn in so that I stop losing time to shit crashing.")
 parser.add_argument('--report_freq',required=False,default="60",help="Specifies what minimum interval of time to wait before displaying batch loss data.")
+parser.add_argument('--validation_interval',required=False,default="10",help="Specifies how often to check the validation loss section of the dataset. (specified in batches)")
 parser.add_argument('--reorder_points',required=False,default='no',help="Specifies how to reorder point data. See 'reorder.py' for available types")
 
 #initialization,; ignored if w/o --make_workspace
@@ -84,6 +85,7 @@ nn_refinement = not raw_args.no_nn_refinement
 camera_refinement = not raw_args.no_camera_refinement
 
 report_freq=float(raw_args.report_freq)
+validation_interval=raw_args.validation_interval
 autosave_s=float(raw_args.autosaves)
 timeout=(float(raw_args.timeout)>0)
 timeout_s=float(raw_args.timeout)
@@ -130,8 +132,5 @@ if(sys.platform=='win32'):#Note: not fully tested on linux
         raise Exception("\"PYSDL2_DLL_PATH\" is unset, SDL2 will not work. Please set \"PYSDL2_DLL_PATH\" either as a global variable or set it for this script")
 
 
-#TODO:
-
-validation_interval=10
 def get_input_channels():
     return ndim+(depth_mode!='remove')
