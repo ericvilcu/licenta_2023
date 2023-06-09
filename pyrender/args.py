@@ -1,5 +1,5 @@
 import argparse
-import os
+import os,sys
 #TODO: organize arguments so finding/modifying them is easier
 #os.environ["CUDA_LAUNCH_BLOCKING"]='1'
 parser=argparse.ArgumentParser(prog="NeuralRendererPython")
@@ -125,8 +125,9 @@ full_samples_final = bool(raw_args.full_samples_final)
 sample_prefix = raw_args.sample_prefix
 screencap_folder=str(raw_args.screencap_folder)
 
-if("PYSDL2_DLL_PATH" not in os.environ):
-    raise Exception("\"PYSDL2_DLL_PATH\" is unset, SDL2 will not work. Please set \"PYSDL2_DLL_PATH\" either as a global variable or set it for this script")
+if(sys.platform=='win32'):#Note: not fully tested on linux
+    if("PYSDL2_DLL_PATH" not in os.environ):
+        raise Exception("\"PYSDL2_DLL_PATH\" is unset, SDL2 will not work. Please set \"PYSDL2_DLL_PATH\" either as a global variable or set it for this script")
 
 
 #TODO:
