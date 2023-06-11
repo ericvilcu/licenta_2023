@@ -248,7 +248,7 @@ __hdfi__ void backward_environment(const float* pixel_grad, const float* environ
             float sun_z_grad=CONTRIB_Z_grad/direction.z * sun_mag;
 
             atomicAdd(&environment_grad[SUN_POS_IDX+0],sun_x_grad);
-            atomicAdd(&environment_grad[SUN_POS_IDX+1],sun_y_grad);
+            atomicAdd(&environment_grad[SUN_POS_IDX+1],sun_z_grad);
         }
     }
 }
