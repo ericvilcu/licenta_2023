@@ -33,7 +33,7 @@ float __hdfi__ test_depth(float my_depth, float min_depth){
 }
 #elif BLEND_MODE==3//standatd curved
 float __hdfi__ test_depth(float my_depth, float min_depth){
-    return min(1,my_depth/min_depth - (1.0-0.01));
+    return min(1.0f,my_depth/min_depth - (1.0f-0.01f));
 }
 #endif
 

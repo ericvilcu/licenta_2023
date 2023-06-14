@@ -151,7 +151,7 @@ class GateModule(torch.nn.Module):
 class MainModule_2(torch.nn.Module):
     def __init__(self,layers=1,subplots=4,ndim=3,empty=False,**unused_args):
         self.subplots=subplots
-        channels=ndim+(args.depth_mode!='remove')
+        channels=args.get_input_channels()
         super().__init__()
         if(empty):return
         padding=1
@@ -361,14 +361,13 @@ class MainModule_1(torch.nn.Module):
         super().__init__()
         if(empty):return
         if(kern%2!=1):
-            raise "kernel size must be odd for padding to be able to keep it constant"
+            raise Exception("kernel size must be odd for padding to be able to keep it constant")
         self.norm = torch.nn.ELU() if not use_gates else torch.nn.Identity()
         if layers==None: layers= 1 if use_gates else 2
-        #self.register_module("norm", self.norm)
         padding=(kern-1)//2
         last_in=0
         self.in_layers=[];self.out_layers=[]
-        ndim_d=ndim+(args.depth_mode!='remove')
+        ndim_d=args.get_input_channels()
         for i in range(subplots):
             l=[]
             last_in+=ndim_d
@@ -800,7 +799,7 @@ class trainer():
                 globals={'self':self,'data':[scene_id,int(cam_type),camera,self.nn.required_subplots()]})
             metric3=t3.timeit(number=reps//5 + 1)
             times_back_nn.append(metric3.mean)
-            print(f"Image {idx+1} benchmark complete")
+            print(f"Image {idx+1} benchmark complete",flush=True)
         return times,times_back,times_nn,times_back_nn
 
 if(args.stagnation_batches!=-1):
@@ -847,7 +846,7 @@ class trainer_thread(Thread):
                     print(f"Last validation:{validation_loss_this_batch}")
                     unprinted_validation=False
                 dt=e-s
-                print(f"Total batches:{metaData.batches}(this run {TOTAL_BATCHES_THIS_RUN});Runtime={int(dt)//3600:02d}:{(int(dt)//60)%60:02d}:{int(dt)%60:02d}.{str(math.fmod(dt,1))[2:]}")
+                print(f"Total batches:{metaData.batches}(this run {TOTAL_BATCHES_THIS_RUN});Runtime={int(dt)//3600:02d}:{(int(dt)//60)%60:02d}:{int(dt)%60:02d}.{str(math.fmod(dt,1))[2:]}",flush=True)
                 
                 l={}
                 last_report=e
