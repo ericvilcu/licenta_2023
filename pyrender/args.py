@@ -69,7 +69,7 @@ nn_type=int(raw_args.nn_type)
 base_nn:str = raw_args.base_nn
 ndim=3+int(raw_args.extra_channels)
 depth_mode=raw_args.depth_mode
-scenes=[s[0] for s in raw_args.scene]
+scenes=[s[0] for s in raw_args.scene] if raw_args.scene!=None else []
 width=raw_args.width
 height=raw_args.height
 train=not raw_args.notrain
